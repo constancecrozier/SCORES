@@ -457,7 +457,8 @@ class MultipleStorageAssets:
         return ''
 
     def charge_specfied_order(self, surplus, c_order, d_order, t_res=1,
-                              return_output=False,start_up_time=0):
+                              return_output=False,start_up_time=0,
+                              return_di_av=False):
         '''
         == description ==
         .
@@ -476,6 +477,10 @@ class MultipleStorageAssets:
         shortfalls = 0
         output = [0]*len(surplus)
         self.curt = 0.0
+        di_profiles = {}
+        T = int(24/t_res)
+        for i in range(len(c_order)):
+            di_profiles[i] = {'c':[0.0]*T,'d':[0.0]*T}
 
         # initialise all storage units
         for i in range(self.n_assets):
@@ -499,28 +504,45 @@ class MultipleStorageAssets:
                 for i in range(self.n_assets):
                     if t_surplus > 0:
                         self.units[c_order[i]].charge_timestep(t, t_surplus)
-                        t_surplus = self.units[c_order[i]].output[t]
                         output[t] = self.units[c_order[i]].output[t]
+                        if t > start_up_time:
+                            di_profiles[i]['c'][t%T] += output[t]-t_surplus
+                        t_surplus = self.units[c_order[i]].output[t]
                 self.curt += output[t]
                 
             elif t_surplus < 0:
                 for i in range(self.n_assets):
                     if t_surplus < 0:
                         self.units[d_order[i]].discharge_timestep(t,t_surplus)
-                        t_surplus = self.units[d_order[i]].output[t]
                         output[t] = self.units[d_order[i]].output[t]
+                        if t > start_up_time:
+                            di_profiles[i]['d'][t%T] += output[t]-t_surplus
+                        t_surplus = self.units[d_order[i]].output[t]
                 if output[t] < 0:
                     shortfalls += 1
             
         reliability = 100 - ((shortfalls*100)/(len(surplus)-start_up_time))
-        
-        if return_output is False:
+
+        if return_output is False and return_di_av is False:
             return reliability
-        else:
-            return [reliability, output]        
-                   
+
+        ret = [reliability]
+        
+        if return_output is True:
+            ret += [output]
+
+        if return_di_av is True:
+            sf = (len(surplus)-start_up_time)/T
+            for i in di_profiles:
+                for t in range(T):
+                    di_profiles[i]['c'][t] = float(di_profiles[i]['c'][t])/sf
+                    di_profiles[i]['d'][t] = float(di_profiles[i]['d'][t])/sf
+            ret += [di_profiles]
+
+        return ret
+    
     def charge_sim(self, surplus, t_res=1, return_output=False,
-                   start_up_time=0,strategy='ordered'):
+                   start_up_time=0,strategy='ordered',return_di_av=False):
         '''
         == description ==
         This will 
@@ -541,14 +563,12 @@ class MultipleStorageAssets:
         '''
         
         if strategy == 'ordered':
-            [rel,out] = self.charge_specfied_order(surplus, self.c_order,
-                                                   self.d_order,t_res=t_res,
-                                                   return_output=True,
-                                                   start_up_time=start_up_time)
-        if return_output is False:
-            return rel
-        else:
-            return [rel, out]
+            res = self.charge_specfied_order(surplus, self.c_order,
+                                             self.d_order,t_res=t_res,
+                                             return_output=return_output,
+                                             start_up_time=start_up_time,
+                                             return_di_av=return_di_av)
+        return res
 
     def analyse_usage(self):
         '''
@@ -574,7 +594,7 @@ class MultipleStorageAssets:
 
         return [stored, recovered, curtailed]
 
-    def size_storage(self, surplus, reliability, initial_capacity=0,
+    def size_storage(self, surplus, reliability, initial_capacity=None,
                      req_res=1e5,t_res=1, max_capacity=1e9,
                      start_up_time=0,strategy='ordered'):
         '''
@@ -615,7 +635,15 @@ class MultipleStorageAssets:
                                  start_up_time=start_up_time,
                                  strategy=strategy)
         if rel1 > reliability:
-            raise Exception('initial capacity too high')
+            print('Initial capacity too high')
+            if initial_capacity == 0:
+                return 0.0
+            else:
+                self.size_storage(surplus, reliability, initial_capacity=0,
+                                  req_res=req_res,t_res=t_res,
+                                  max_capacity=max_capacity,
+                                  start_up_time=start_up_time,
+                                  strategy=strategy)
 
         while upper-lower > req_res:
             mid = (lower+upper)/2

@@ -14,7 +14,7 @@ from fns import lambda_i, c_p, get_filename
 class GenerationModel:
     # Base class for a generation model
     def __init__(self, sites, year_min, year_max, months, fixed_cost,
-                 variable_cost, name):
+                 variable_cost, name, data_path, save_path):
         '''
         == description ==
         This function initialises the class, builds empty arrays to store the
@@ -39,6 +39,8 @@ class GenerationModel:
         self.fixed_cost = fixed_cost
         self.variable_cost = variable_cost
         self.name = name
+        self.data_path = data_path
+        self.save_path = save_path
 
         self.date_map = {}
         n = 0
@@ -171,6 +173,15 @@ class GenerationModel:
                 + (self.variable_cost*sum(self.power_out_scaled)
                    /(self.year_max+1-self.year_min)))
 
+    def get_dirunal_profile(self,units='MW'):
+        p = [0.0]*24
+        sf = int(len(self.power_out_scaled)/24)
+        for t in range(len(self.power_out_scaled)):
+            p[t%24] += self.power_out_scaled[t]/sf
+
+        return p
+        
+
 class OffshoreWindModel(GenerationModel):
 
     def __init__(self, sites='all', year_min=2013, year_max=2019,
@@ -210,7 +221,7 @@ class OffshoreWindModel(GenerationModel):
         None
         '''
         super().__init__(sites, year_min, year_max, months, fixed_cost,
-                         variable_cost, 'Offshore Wind')
+                         variable_cost, 'Offshore Wind',data_path,save_path)
             
         self.tilt = tilt
         self.air_density = air_density
@@ -221,8 +232,6 @@ class OffshoreWindModel(GenerationModel):
         self.v_cut_out = v_cut_out
         self.n_turbine = n_turbine
         self.turbine_size = turbine_size
-        self.data_path = data_path
-        self.save_path = save_path
         
         file_name = get_filename(sites,'osw',year_min,year_max,months)
         if file_name == '':
@@ -368,7 +377,7 @@ class SolarModel(GenerationModel):
         None
         '''
         super().__init__(sites, year_min, year_max, months, fixed_cost,
-                         variable_cost, 'Solar')
+                         variable_cost, 'Solar',data_path,save_path)
         
         self.orient = np.deg2rad(orient) # deg -> rad
         self.tilt = np.deg2rad(tilt) # deg -> rad
@@ -376,8 +385,6 @@ class SolarModel(GenerationModel):
         self.performance_ratio = performance_ratio
         self.plant_capacity = plant_capacity*1e3 # MW to kW
         self.area_factor = area_factor
-        self.data_path = data_path
-        self.save_path = save_path
         
         file_name = get_filename(sites,'s',year_min,year_max,months)
         if file_name == '':
@@ -604,7 +611,7 @@ class OnshoreWindModel(GenerationModel):
         None
         '''
         super().__init__(sites, year_min, year_max, months, fixed_cost,
-                         variable_cost, 'Onshore Wind')
+                         variable_cost, 'Onshore Wind',data_path,save_path)
         
         # If no values given assume an equl distribution of turbines over sites            
         self.tilt = tilt
@@ -617,8 +624,6 @@ class OnshoreWindModel(GenerationModel):
         self.n_turbine = n_turbine
         self.turbine_size = turbine_size
         self.hub_height = hub_height
-        self.data_path = data_path
-        self.save_path = save_path
 
         
         file_name = get_filename(sites,'w'+str(turbine_size),
