@@ -260,8 +260,8 @@ class StorageModel:
 
         return [self.en_in, self.en_out, self.curt]
 
-    def size_storage(self, surplus, reliability, initial_capacity=None,
-                     req_res=1e3,t_res=1, max_storage=1e8,
+    def size_storage(self, surplus, reliability, initial_capacity=0,
+                     req_res=1e3,t_res=1, max_capacity=1e8,
                      start_up_time=0):
         '''
         == description ==
@@ -281,29 +281,42 @@ class StorageModel:
         == returns ==
         (float) required storage capacity (MWh)
         '''
-
-        if initial_capacity is None:
-            initial_capacity = max(surplus)
-
-        rel = 0
-
         lower = initial_capacity
-        upper = max_storage
+        upper = max_capacity
+        
+
+        self.set_capacity(upper)
+        rel3 = self.charge_sim(surplus,t_res=t_res,start_up_time=start_up_time)
+        if rel3 < reliability:
+            self.capacity = np.inf
+            return np.inf
+
+        self.set_capacity(lower)
+        rel1 = self.charge_sim(surplus,t_res=t_res,start_up_time=start_up_time)
+        if rel1 > reliability:
+            print('Initial capacity too high')
+            if initial_capacity == 0:
+                return 0.0
+            else:
+                self.size_storage(surplus, reliability, initial_capacity=0,
+                                  req_res=req_res,t_res=t_res,
+                                  max_capacity=max_capacity,
+                                  start_up_time=start_up_time,
+                                  strategy=strategy)
 
         while upper-lower > req_res:
-            cap = np.linspace(lower,upper,num=10)
-            i = -1
-            while rel < reliability and i < len(cap):
-                self.capacity = cap[i]
-                rel = self.charge_sim(surplus,t_res=t_res,
-                                        start_up_time=start_up_time)
-                i += 1
-            if i == len(cap) and rel < reliability:
-                return np.inf
-            
-            lower = cap[i-2]
-            upper = cap[i-1]
+            mid = (lower+upper)/2
+            self.set_capacity(mid)
+            rel2 = self.charge_sim(surplus,t_res=t_res,
+                                   start_up_time=start_up_time)
 
+            if rel2 < reliability:
+                lower = mid
+                rel1 = rel2
+            else:
+                upper = mid
+                rel3 = rel2
+                
         return (upper+lower)/2
         
 class BatteryStorageModel(StorageModel):
@@ -623,9 +636,8 @@ class MultipleStorageAssets:
         upper = max_capacity
 
         self.set_capacity(upper)
-        rel3 = self.charge_sim(surplus,t_res=t_res,
-                                 start_up_time=start_up_time,
-                                 strategy=strategy)
+        rel3 = self.charge_sim(surplus,t_res=t_res,start_up_time=start_up_time,
+                               strategy=strategy)
         if rel3 < reliability:
             self.capacity = np.inf
             return np.inf

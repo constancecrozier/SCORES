@@ -167,13 +167,13 @@ class GenerationModel:
         None
 
         == returns ==
-        (float) load factor in percent (0-100)
+        (float) cost per year in GBP
         '''
         return (self.fixed_cost*self.scaled_installed_capacity
                 + (self.variable_cost*sum(self.power_out_scaled)
                    /(self.year_max+1-self.year_min)))
 
-    def get_dirunal_profile(self,units='MW'):
+    def get_diurnal_profile(self):
         p = [0.0]*24
         sf = int(len(self.power_out_scaled)/24)
         for t in range(len(self.power_out_scaled)):

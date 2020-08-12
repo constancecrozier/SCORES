@@ -212,30 +212,34 @@ class LoadFactorMap:
 
 class OffshoreWindMap(LoadFactorMap):
 
-    def __init__(self, lat_num=400, lon_num=300, quality='h',data_loc=None):
+    def __init__(self, lat_min=48.2, lat_max=61.2, lon_min=-10.0, 
+                 lon_max=4.0, lat_num=400, lon_num=300, quality='h',
+                 data_loc=None):
         lfe = LoadFactorEstimator('osw',data_loc=data_loc)
         
-        super().__init__(lfe, 48.2, 61.2, -10.0, 4.0 ,lat_num, lon_num, quality,
-                         is_land=False)
+        super().__init__(lfe, lat_min, lat_max, lon_min, lon_max, 
+                         lat_num, lon_num, quality, is_land=False)
 
 
 class OnshoreWindMap(LoadFactorMap):
 
-    def __init__(self, lat_num=400, lon_num=300, quality='h',turbine_size=3.6,
+    def __init__(self, lat_min=49.9, lat_max=59.0, lon_min=-7.5, lon_max=2.0,
+                 lat_num=400, lon_num=300, quality='h', turbine_size=3.6,
                  data_loc=None):
         lfe = LoadFactorEstimator('w'+str(float(turbine_size)),
                                   data_loc=data_loc)
         
-        super().__init__(lfe, 49.9, 59.0, -7.5, 2.0 ,lat_num, lon_num, quality,
-                         is_land=True)
+        super().__init__(lfe, lat_min, lat_max, lon_min, lon_max, 
+                         lat_num, lon_num, quality, is_land=True)
 
 
 class SolarMap(LoadFactorMap):
 
-    def __init__(self, lat_num=400, lon_num=300, quality='h',data_loc=None):
+    def __init__(self, lat_min=49.9, lat_max=59.0, lon_min=-7.5, lon_max=2.0,
+                 lat_num=400, lon_num=300, quality='h',data_loc=None):
         lfe = LoadFactorEstimator('s',data_loc=data_loc)
         
-        super().__init__(lfe, 49.9, 59.0, -7.5, 2.0 ,lat_num, lon_num, quality,
-                         is_land=True)
+        super().__init__(lfe, lat_min, lat_max, lon_min, lon_max,
+                         lat_num, lon_num, quality, is_land=True)
 
 #class StorageSizing:
