@@ -292,7 +292,7 @@ class ElectricitySystem:
         gen = {}
         gs = []
         for g in self.gen_list:
-            gen[g.name] = g.get_dirunal_profile()
+            gen[g.name] = g.get_diurnal_profile()
             gs.append(g.name)
             
         stor_cap += [1-sum(stor_cap)]
@@ -664,6 +664,8 @@ class ElectricitySystem:
             print(gen_cap)
             print(stor_cap)
             stor_cap = self.optimise_storage_ratio(gen_cap,stor_cap)
+        else:
+            self.cost(gen_cap)
 
         # finally optimise the total installed generators
         tic, cost = self.optimise_total_installed_capacity(sum(gen_cap),
@@ -743,6 +745,9 @@ class ElectricitySystem:
 
         plt.tight_layout()
         plt.show()
+                
+
+        
 
         
 class ElectricitySystemGB(ElectricitySystem):
@@ -755,3 +760,631 @@ class ElectricitySystemGB(ElectricitySystem):
                                electrify_heat=electrify_heat, evs=evs)
         super().__init__(gen_list, stor_list, demand, reliability=reliability,
                          start_up_time=start_up_time)
+
+        
+class DispatchableOutput(ElectricitySystem):
+
+    def __init__(self, generator, storage):
+        super().__init__([generator], storage, [0.0]*len(generator.power_out))
+
+
+
+    def plot_reliability_curve(self, target_load_factor, min_installed=0,
+                               max_installed=100, step=1, hold_on=False,
+                               plot_number=1, label=None, start_up_time=0):
+        if label is None:
+            label=str(int(target_load_factor))+'% target'
+            
+        goal = target_load_factor*self.total_installed_generation/100
+        self.demand = [goal]*self.len
+        self.update_surplus()
+
+        storage_capacity = np.arange(min_installed, max_installed, step)
+        reliability = []
+        for sc in storage_capacity:
+            self.storage.set_capacity(sc*self.total_installed_generation)
+            reliability.append(self.get_reliability(start_up_time=start_up_time))
+            
+        plt.figure(plot_number)
+        plt.rcParams["font.family"] = 'serif'
+        plt.rcParams['font.size'] = 10
+        plt.plot(storage_capacity,reliability,label=label)
+        if hold_on is False:
+            plt.ylabel('Reliability')
+            plt.xlabel('Storage installed per unit generation (MWh per MW)')
+            plt.grid(ls=':')
+            plt.legend()
+            plt.tight_layout()
+            plt.show()
+        
+    def plot_reliability_cost_curve(self, target_load_factor, min_installed=0,
+                                    max_installed=100, step=1, hold_on=False,
+                                    plot_number=1, label=None, start_up_time=0):
+        if label is None:
+            label=str(int(target_load_factor))+'% target'
+            
+        goal = target_load_factor*self.total_installed_generation/100
+        self.demand = [goal]*self.len
+        self.update_surplus()
+
+        storage_capacity = np.arange(min_installed, max_installed, step)
+        reliability = []
+        cost = []
+        for sc in storage_capacity:
+            self.storage.set_capacity(sc*self.total_installed_generation)
+            reliability.append(self.get_reliability(start_up_time=start_up_time))
+            cost.append(self.storage.get_cost())
+            if sc == storage_capacity[-1]:
+                print(self.storage.analyse_usage())
+            
+        plt.figure(plot_number)
+        plt.rcParams["font.family"] = 'serif'
+        plt.rcParams['font.size'] = 10
+        plt.subplot(2,1,1)
+        plt.plot(storage_capacity,reliability,label=label)
+        plt.subplot(2,1,2)
+        plt.plot(cost,reliability,label=label)
+        if hold_on is False:
+            plt.ylabel('Reliability')
+            plt.grid(ls=':')
+            plt.xlabel('Storage cost per unit generation (£bn per MW-year)')
+            plt.subplot(2,1,1)
+            plt.xlabel('Storage installed per unit generation (MWh per MW)')
+            plt.grid(ls=':')
+            plt.legend()
+            plt.tight_layout()
+            plt.show()
+
+class CostOptimisation(ElectricitySystem):
+
+    def __init__(self, gen_list, stor_list, demand='GB', min_gen_cap=[],
+                 max_gen_cap = [], reliability=99,
+                 start_up_time=30*24*3, year_min=2013, year_max=2019,
+                 months=list(range(1,13))):
+
+        if demand == 'GB':
+            demand = get_demand(year_min, year_max, months)
+        super().__init__(gen_list, stor_list, demand)
+
+        self.reliability = reliability
+        self.demand = demand
+        self.start_up_time = start_up_time
+        self.min_gen_cap = min_gen_cap
+        self.max_gen_cap = max_gen_cap
+
+    def cost_generation_only(self, gen_cap):
+        total =  self.scale_generation(gen_cap)
+        self.update_surplus()
+        sc = self.storage.size_storage(self.surplus, self.reliability,
+                                       start_up_time=self.start_up_time)
+        if sc == np.inf:
+            return np.inf
+        else:
+            total += self.storage.get_cost()
+            return total*1e-9
+        
+    def cost_storage_only(self, x):
+        total = 0
+        stor_cap = list(x)
+        stor_cap.append(1-sum(stor_cap))
+
+        self.storage.rel_capacity = stor_cap
+        
+        self.update_surplus()
+        sc = self.storage.size_storage(self.surplus, self.reliability,
+                                       start_up_time=self.start_up_time)
+        
+        if sc == np.inf:
+            return np.inf
+        else:
+            total += self.storage.get_cost()
+            return total*1e-9
+
+    def optimise_generation(self,number_test_points=20,stor_cap=None,
+                            refine=False,x0=None):
+        if stor_cap is None:
+            if self.n_storage == 1:
+                stor_cap = []
+            else:
+                stor_cap = [1.0/self.n_storage]*(self.n_storage-1)
+
+        if refine is False or x0 is None:
+            x = lhs(len(self.gen_list),samples=number_test_points)
+
+            best = None
+            lwst = np.inf
+            for i in range(number_test_points):
+                for j in range(len(self.min_gen_cap)):
+                    # now scale the test points
+                    x[i][j] = (x[i][j]*(self.max_gen_cap[j] - self.min_gen_cap[j])
+                               + self.min_gen_cap[j])
+                f = self.cost(list(x[i])+stor_cap)
+                if f < lwst:
+                    lwst = f
+                    best = list(x[i])
+            x0 = best
+
+        if refine is True:
+            bounds = Bounds(self.min_gen_cap,self.max_gen_cap)
+            res = minimize(self.cost_generation_only, x0, bounds=bounds,
+                           tol=1e-3)
+            best = res.x
+            lwst = res.fun
+
+        return best, lwst
+
+    def optimise0(self, stor_cap=None):
+        # need an exit clause for the single storage case
+        # three stage process
+
+        gen_cap,cost = self.optimise_generation(number_test_points=10,
+                                                refine=False,stor_cap=stor_cap)
+        stor_cap,cost = self.optimise_storage(gen_cap,stor_cap)
+        gen_cap,cost = self.optimise_generation(stor_cap=stor_cap,refine=True,
+                                                x0=gen_cap)
+
+        return list(gen_cap)+list(stor_cap), cost
+
+    def optimise(self, stor_cap=None, gen_cap=None, show_slices=False,
+                 analyse_results=True,filename='log/system_analysis.txt'):
+        # need an exit clause for the single storage case
+        # three stage process
+
+        if gen_cap is None:
+            gen_cap,cost = self.optimise_generation(number_test_points=5,
+                                                    refine=False,
+                                                    stor_cap=stor_cap)
+        else:
+            cost = self.cost(gen_cap+stor_cap)
+        print(gen_cap)
+        print(stor_cap)
+        gen_cap,stor_cap,cost = self.optimise_storage(gen_cap,stor_cap)
+        print(gen_cap)
+        print(stor_cap)
+        gen_cap,cost = self.optimise_generation(refine=True,x0=gen_cap,
+                                                stor_cap=stor_cap)
+        print(gen_cap)
+        print(stor_cap)
+
+        f = open('log/opt_results.txt','w')
+        res = 'MIN:'+result_as_txt(gen_cap,stor_cap,cost,self.storage.capacity)
+        f.write(res)
+        f.close()
+
+        if show_slices is True:
+            self.plot_slices(gen_cap,stor_cap,cost)
+
+        if analyse_results is True:
+            self.analyse(list(gen_cap)+list(stor_cap),filename=filename)
+
+        return list(gen_cap)+list(stor_cap), cost
+
+    def optimise1(self, tic0=None, stor_cap=None, gen_cap=None,
+                  show_slices=False, analyse_results=True,
+                  filename='log/system_analysis.txt'):
+        # need an exit clause for the single storage case
+        # three stage process
+        if tic0 is None:
+            tic0 = 2.8e-3*max(self.demand) # arbitrary fudge
+
+        if gen_cap is None:
+            gen_cap,cost = self.lhs_generation(tic0,number_test_points=20,
+                                               stor_cap=stor_cap)
+        else:
+            cost = self.cost(gen_cap+stor_cap)
+            
+        gen_cap,stor_cap,cost = self.optimise_storage(gen_cap,stor_cap)
+        
+        f = open('log/opt_results.txt','w')
+        res = 'MIN:'+result_as_txt(gen_cap,stor_cap,cost,self.storage.capacity)
+        f.write(res)
+        f.close()
+
+        if show_slices is True:
+            self.plot_slices(gen_cap,stor_cap,cost)
+
+        if analyse_results is True:
+            self.analyse(list(gen_cap)+list(stor_cap),filename=filename)
+
+        return list(gen_cap)+list(stor_cap), cost
+            
+    def plot_slices(self,gen_cap,stor_cap,cost):
+        for i in range(len(gen_cap)):
+            x = []
+            y = []
+            for mf in [0.8,0.9,0.95,1,1.05,1.1,1.2]:            
+                g = copy.deepcopy(gen_cap)
+                g[i] = g[i]*mf
+                x.append(g[i])
+                if mf == 1:
+                    c = cost
+                else:
+                    c = self.cost(g+stor_cap)
+                y.append(c)
+                f = open('log/opt_results.txt','a+')
+                res = 'G'+str(i)+'-'+str(mf)+':'+result_as_txt(g,stor_cap,c,self.storage.capacity)
+                f.write(res)
+                f.close()
+
+                _subplot(gen_cap+stor_cap,i+1)
+                plt.plot(x,y)
+                plt.scatter([gen_cap[i]],[cost],marker='x',c='r')
+                plt.ylabel('Cost (£bn/yr)')
+                plt.xlabel(self.gen_list[i].name+' (GWh)')
+
+        for i in range(len(stor_cap)):
+            x = []
+            y = []
+            if stor_cap[i] < 1e-2:
+                for af in [-0.5e-2,-1e-3,0,1e-3,5e-3,1e-2]:
+                    s = copy.deepcopy(stor_cap)
+                    s[i] += af
+                    if s[i] < 0:
+                        s[i] = 0
+                    x.append(s[i]*self.storage.capacity*1e-3)
+                    if af == 0:
+                        c = cost
+                    else:
+                        c = self.cost(gen_cap+s)
+                    y.append(c)
+                    f = open('log/opt_results.txt','a+')
+                    res = 'S'+str(i)+'-'+str(mf)+':'+result_as_txt(gen_cap,s,c,self.storage.capacity)
+                    f.write(res)
+                    f.close()
+
+                    _subplot(gen_cap+stor_cap,i+1+len(gen_cap))
+                    plt.plot(x,y)
+                    plt.ylabel('Cost (£bn/yr)')
+                    plt.xlabel(self.storage.units[i].name+' (GWh)')
+
+            else:
+                for mf in [0.8,0.9,0.95,1.05,1.1,1.2]: 
+                    s = copy.deepcopy(stor_cap)
+                    s[i] = mf*s[i]
+                    x.append(s[i]*self.storage.capacity*1e-3)
+                    if mf == 1:
+                        c = cost
+                    else:
+                        c = self.cost(gen_cap+s)
+                    y.append(c)
+                    f = open('log/opt_results.txt','a+')
+                    res = 'S'+str(i)+'-'+str(mf)+':'+result_as_txt(gen_cap,s,c,self.storage.capacity)
+                    f.write(res)
+                    f.close()
+
+                    _subplot(gen_cap+stor_cap,i+1+len(gen_cap))
+                    plt.plot(x,y)
+                    plt.ylabel('Cost (£bn/yr)')
+                    plt.xlabel(self.storage.units[i].name+' (GWh)')
+                    
+        plt.tight_layout()
+        plt.show()
+
+    def search_single_storage_ratio(self,gen_cap,first=1e-2,scale_factor=2):
+        gen_cost = self.scale_generation(gen_cap)
+        ratios = [0.0]
+        r = first
+        while r < 1.0:
+            ratios.append(r)
+            r = r*scale_factor
+        ratios.append(1.0)
+
+        cost = [0]*len(ratios)
+        capacity = [0]*len(ratios)
+        sc = None
+        for i in np.arange(len(ratios)-1,-1,-1):
+            r = ratios[i]
+            self.storage.rel_capacity = [r,1-r]
+            self.update_surplus()
+            if sc == np.inf:
+                sc = None
+            sc = self.storage.size_storage(self.surplus, self.reliability,
+                                           start_up_time=self.start_up_time,
+                                           initial_capacity=sc)
+            cost[i] = (gen_cost+self.storage.get_cost())*1e-9
+            capacity[i] = self.storage.capacity*1e-6
+
+        
+        plt.figure()
+        plt.subplot(2,1,1)
+        title = ''
+        for i in range(len(gen_cap)):
+            title += str(int(gen_cap[i])) + ' GW gen' + str(i+1) + ', '
+        plt.title(title)
+        plt.plot(ratios,cost)
+        plt.ylabel('Total System Cost (£bn/yr)')
+        plt.subplot(2,1,2)
+        plt.plot(ratios,capacity)
+        plt.ylabel('Storage Capacity (TWh)')
+        plt.xlabel('Ratio of storage1:storage2')
+
+        for i in range(1,3):
+            plt.subplot(2,1,i)
+            plt.grid(ls=':')
+            plt.xlim(0,1.01)
+        plt.tight_layout()
+        plt.show()
+
+
+    def get_cost_breakdown(self):
+        s = self.storage.get_cost()
+        g = 0.0
+        for i in range(len(self.gen_list)):
+            g += self.gen_list[i].get_cost()
+
+        return 100*s/(s+g)
+        
+    def cost_fixed_gen_ratio(self, x): 
+        '''
+        == description ==
+        Calculates the total system cost for a given total installed generation
+        capacity and a set of relative storage sizes - but with the ratio
+        between generation units fixed.
+
+        == parameters ==
+        x: (Array<float>) the first element contains a scaling factor for the
+        previous total installed generation capacity (tic0) and the remaining
+        contain the proportion of the first n-1 storage capacities (the final
+        storage asset is allocated the remaining share).
+
+        == returns ==
+        (float) total system cost £bn /year
+        '''
+        print(x)
+        tic = x[0]*self.tic0
+        total = self.scale_generation_tic(tic)
+        
+        stor_cap = list(x[1:])
+        stor_cap.append(1-sum(stor_cap))
+        self.storage.rel_capacity = stor_cap
+        
+        self.update_surplus()
+        sc = self.storage.size_storage(self.surplus, self.reliability,
+                                       start_up_time=self.start_up_time,
+                                       strategy=self.strategy)
+        if sc == np.inf:
+            return np.inf
+        else:
+            total += self.storage.get_cost()
+            print(total*1e-9)
+            return total*1e-9
+
+
+    def cost_fixed_gen_ratio1(self, x): 
+        '''
+        == description ==
+        Calculates the total system cost for a given total installed generation
+        capacity and a set of relative storage sizes - but with the ratio
+        between generation units fixed.
+
+        == parameters ==
+        x: (Array<float>) the first element contains a scaling factor for the
+        previous total installed generation capacity (tic0) and the remaining
+        contain the proportion of the first n-1 storage capacities (the final
+        storage asset is allocated the remaining share).
+
+        == returns ==
+        (float) total system cost £bn /year
+        '''
+        print(x)
+        tic = x[0]
+        total = self.scale_generation_tic(tic)
+        
+        stor_cap = list(x[1:])
+        stor_cap.append(1-sum(stor_cap))
+        self.storage.rel_capacity = stor_cap
+        
+        self.update_surplus()
+        sc = self.storage.size_storage(self.surplus, self.reliability,
+                                       start_up_time=self.start_up_time,
+                                       strategy=self.strategy)
+        if sc == np.inf:
+            return np.inf
+        else:
+            total += self.storage.get_cost()
+            print(total*1e-9)
+            return total*1e-9
+
+    def optimise_fixed_gen_ratio1(self, installed_gen, x0):
+        '''
+        == description ==
+        This function optimises over the total installed capacity and the
+        relative storage capacities, but with the relative generation capacities
+        
+
+        == parameters ==
+        tic: (float) The total installed capacity in GW of all generation units
+        number_test_points: (int) The number of test points
+        stor_cap: (Array<float>) The ratio of storage capacities to use
+
+        == returns ==
+        (float) lowest found total system cost £bn /year
+        (Array<float>) the corresponding installed generation capacities in GW
+        '''
+        tic = sum(installed_gen)
+        self.scale_generation(installed_gen)
+        
+        bounds = Bounds([0.0]*(self.n_storage),
+                        [sum(self.max_gen_cap)]+[1.0]*(self.n_storage-1))
+
+        if self.n_storage > 2:
+            # constraint to ensure that storage ratios add up to less than 1
+            linear_constraint = LinearConstraint([0]+[1.0]*(self.n_storage-1),
+                                                 [0], [1])
+            constraints = [linear_constraint]
+        else:
+            constraints = None
+
+        if self.n_storage == 1:
+            x, cost = self.search_gen_scale_factor()
+            stor_cap = []
+            tic = x#help, don't know
+        else:
+            res = minimize(self.cost_fixed_gen_ratio1, [tic]+x0,
+                           constraints=constraints, bounds=bounds)
+            stor_cap = list(res.x[1:])
+            tic = x[0]#list(res.x)[0]*self.tic0
+            cost = res.fun
+
+        gen_cap = []
+        for i in range(len(installed_gen)):
+            gen_cap.append(installed_gen[i]*tic/sum(installed_gen))
+        
+        
+        return gen_cap, stor_cap, cost
+
+    def optimise(self, reliability=None, tic0=None, stor_cap=None, gen_cap=None,
+                 min_gen_cap=None, max_gen_cap=None, analyse=True,
+                 start_up_time=30*24*3, strategy=None):
+        '''
+        == description ==
+        Searches for the lowest cost electricity system that meets the
+        specified reliability requirement. If an initial gset of generation
+        capacities are not specified a lhs search is performed to find a good
+        starting point
+
+        == parameters ==
+        reliability: (float) The required system reliability (0-100)
+        tic0: (float) The total installed generation capacity used for search
+        stor_cap: (Array<float>) the ratio of storage asset's capacity
+        gen_cap: (Array<float>) the installed generation capacities in GW
+        min_gen_cap: (Array<float>) lower limits on the size of each generation
+            unit in GW
+        max_gen_cap: (Array<float>) upper limits on the size of each generation
+            unit in GW
+        analyse: (boo) Whether or not to store analysis of optimal system
+        start_up_time: (int) number of first time intervals to be ignored when
+            calculating the % of met demand (to allow for start up effects).
+        strategy: (str) the strategy for operating the assets. Options:
+                'ordered' - charges/discharges according to self.c_order/d_order
+                'balanced' - ?
+
+        == returns ==
+        (Array<float>) the best system sizing as vector "x"
+        (float) lowest found total system cost £bn /year
+        '''
+        if min_gen_cap is not None:
+            self.min_gen_cap = min_gen_cap
+        if max_gen_cap is not None:
+            self.max_gen_cap = max_gen_cap
+
+        if reliability is not None:
+            self.reliability = reliability
+            self.start_up_time = start_up_time
+        if strategy is not None:
+            self.strategy = strategy
+
+        if stor_cap is None:
+            print('Specifying an initial relative storange capacity will '+
+                  'imporve speed and accuracy')
+            stor_cap = [1.0/self.n_storage]*(self.n_storage-1)
+
+        if gen_cap is None:
+            # perform a lhs search over different generator ratios
+            if tic0 is None:
+               tic0 = 2.8e-3*max(self.demand) # arbitrary 
+            gen_cap,cost = self.lhs_generation(tic0,number_test_points=20,
+                                               stor_cap=stor_cap)
+        else:
+            cost = self.cost(gen_cap+stor_cap)
+            
+        gen_cap,stor_cap,cost = self.optimise_fixed_gen_ratio(gen_cap,stor_cap)
+
+        if analyse is True:
+            self.analyse(list(gen_cap)+list(stor_cap),
+                         filename='log/opt_results.txt')
+
+        return list(gen_cap)+list(stor_cap), cost
+    
+    def optimise1(self, reliability=None, tic0=None, stor_cap=None, gen_cap=None,
+                 min_gen_cap=None, max_gen_cap=None, analyse=True,
+                 start_up_time=30*24*3, strategy=None):
+        '''
+        == description ==
+        Searches for the lowest cost electricity system that meets the
+        specified reliability requirement. If an initial gset of generation
+        capacities are not specified a lhs search is performed to find a good
+        starting point
+
+        == parameters ==
+        reliability: (float) The required system reliability (0-100)
+        tic0: (float) The total installed generation capacity used for search
+        stor_cap: (Array<float>) the ratio of storage asset's capacity
+        gen_cap: (Array<float>) the installed generation capacities in GW
+        min_gen_cap: (Array<float>) lower limits on the size of each generation
+            unit in GW
+        max_gen_cap: (Array<float>) upper limits on the size of each generation
+            unit in GW
+        analyse: (boo) Whether or not to store analysis of optimal system
+        start_up_time: (int) number of first time intervals to be ignored when
+            calculating the % of met demand (to allow for start up effects).
+        strategy: (str) the strategy for operating the assets. Options:
+                'ordered' - charges/discharges according to self.c_order/d_order
+                'balanced' - ?
+
+        == returns ==
+        (Array<float>) the best system sizing as vector "x"
+        (float) lowest found total system cost £bn /year
+        '''
+
+        # ok, how about a three stage process: opimise generation ratio,
+        # optimise storage, optimise amount of
+        if min_gen_cap is not None:
+            self.min_gen_cap = min_gen_cap
+        if max_gen_cap is not None:
+            self.max_gen_cap = max_gen_cap
+
+        if reliability is not None:
+            self.reliability = reliability
+            self.start_up_time = start_up_time
+        if strategy is not None:
+            self.strategy = strategy
+
+        if stor_cap is None:
+            print('Specifying an initial relative storange capacity will '+
+                  'imporve speed and accuracy')
+            stor_cap = [1.0/self.n_storage]*(self.n_storage-1)
+
+        if gen_cap is None:
+            # perform a lhs search over different generator ratios
+            if tic0 is None:
+               tic0 = 2.8e-3*max(self.demand) # arbitrary 
+            gen_cap,cost = self.lhs_generation(tic0,number_test_points=5,
+                                               stor_cap=stor_cap)
+        else:
+            cost = self.cost(gen_cap+stor_cap)
+            
+        gen_cap,stor_cap,cost = self.optimise_fixed_gen_ratio1(gen_cap,stor_cap)
+
+        if analyse is True:
+            self.analyse(list(gen_cap)+list(stor_cap),
+                         filename='log/opt_results.txt')
+
+        return list(gen_cap)+list(stor_cap), cost
+        
+    def search_gen_scale_factor(self,stor_cap):
+        '''
+        == description ==
+        Manually searches through the best generation scale factor, for use
+        when there is only one storage.
+
+        == parameters ==
+        None
+
+        == returns ==
+        (Array<float>) best generation scale factor
+        (float) total system cost £bn /year
+        '''
+
+        lwst  = np.inf
+        best = None
+        for x in np.arange(0.7,1.3,0.01):
+            f = self.cost_fixed_gen_ratio1([x]+stor_cap)
+            if f < lwst:
+                best = x
+                lwst = f
+            if f > lwst*1.1:
+                break
+
+        return [best], lwst
+    
