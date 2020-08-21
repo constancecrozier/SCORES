@@ -1,0 +1,1 @@
+This folder will contain the stored power_out vectors or load factors that have been produced by previous model runs, in order to speed up computation.
