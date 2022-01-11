@@ -202,7 +202,8 @@ class StorageModel:
         elif surplus < 0:
             self.discharge_timestep(t, surplus)
 
-    def charge_sim(self, surplus, t_res=1, return_output=False,start_up_time=0):
+    def charge_sim(self, surplus, t_res=1, return_output=False, return_soc=False,
+                   start_up_time=0):
         '''
         == description ==
         Runs a simulation using opportunistic charging the storage asset.
@@ -226,21 +227,24 @@ class StorageModel:
         self.n_years = len(surplus)/(365.25*24/t_res)
 
         shortfalls = 0 # timesteps where demand could not be met
-        
+        soc = []
         # for convenience, these are the ramp rates in MWh 
         self.max_c = self.capacity*self.max_c_rate*t_res/100
         self.max_d = self.capacity*self.max_d_rate*t_res/100
         
         for t in range(len(surplus)):
             self.time_step(t, surplus[t])
+            soc.append(self.charge/self.capacity)
             if self.output[t] < 0:
                 shortfalls += 1
             
         reliability = 100 - ((shortfalls*100)/(len(surplus)
                                                -self.start_up_time))
         
-        if return_output is False:
+        if return_output is False and return_soc is False:
             return reliability
+        elif return_soc is True:
+            return [reliability, soc]
         else:
             return [reliability, output]
 
@@ -489,6 +493,9 @@ class MultipleStorageAssets:
         
         shortfalls = 0
         output = [0]*len(surplus)
+        soc = []
+        for i in range(self.n_assets):
+            soc.append([i])
         self.curt = 0.0
         di_profiles = {}
         T = int(24/t_res)
@@ -533,6 +540,7 @@ class MultipleStorageAssets:
                         t_surplus = self.units[d_order[i]].output[t]
                 if output[t] < 0:
                     shortfalls += 1
+            #soc[i].append(self.charge)
             
         reliability = 100 - ((shortfalls*100)/(len(surplus)-start_up_time))
 

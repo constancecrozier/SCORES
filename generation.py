@@ -80,7 +80,23 @@ class GenerationModel:
                                         * mp / self.n_good_points[t])
         self.scaled_installed_capacity = installed_capacity
 
-        return self.power_out_scaled 
+        return np.array(self.power_out_scaled)
+    
+    def scale_output_energy(self, energy):
+        sf = energy/sum(self.power_out)
+        mp = max(self.n_good_points)
+        for t in range(len(self.power_out)):
+            # If no data is available forward fill
+            if self.n_good_points[t] == 0:
+                self.power_out_scaled[t] = self.power_out_scaled[t-1]
+                continue
+            # Otherwise scale by percentage of available data
+            self.power_out_scaled[t] = (self.power_out[t] * sf
+                                        * mp / self.n_good_points[t])
+        self.scaled_installed_capacity = max(self.power_out_scaled)
+
+        return np.array(self.power_out_scaled)
+        
 
     def check_for_saved_run(self, path):
         '''

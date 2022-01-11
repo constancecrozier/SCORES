@@ -137,7 +137,7 @@ class ElectricitySystem:
                 self.surplus[t] += gen.power_out_scaled[t]
             self.surplus[t] -= self.demand[t]
         
-    def get_reliability(self, start_up_time=0, return_output=False,
+    def get_reliability(self, start_up_time=0, return_output=False, return_soc=False,
                         strategy='ordered'):
         '''
         == description ==
@@ -153,8 +153,9 @@ class ElectricitySystem:
         (Array<float>) the smoothed supply profile
         '''
         if self.n_storage == 1:
-            rel = self.storage.charge_sim(self.surplus, t_res=self.t_res,
+            rel = self.storage.units[0].charge_sim(self.surplus, t_res=self.t_res,
                                           return_output=return_output,
+                                          return_soc=return_soc,
                                           start_up_time=start_up_time)
         else:
             rel = self.storage.charge_sim(self.surplus,t_res=self.t_res,
