@@ -207,6 +207,13 @@ class LoadFactorMap:
         if savepath != '':
             plt.savefig(savepath+'lf_map.pdf', format='pdf',
                         dpi=300, bbox_inches='tight', pad_inches=0)
+            
+            with open(savepath+'lf_map.csv','w') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(['title','row'])
+                for i in range(len(x)):
+                    writer.writerow(Z[i,:])      
+            
         if show is True:
             plt.show()
 
