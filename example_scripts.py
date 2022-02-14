@@ -17,7 +17,7 @@ USE CASE 1: Runnning individual generation models
 osw = OffshoreWindModel(year_min=2013, year_max=2019, sites='all',
                         data_path='data/offshore_wind/')
 
-p = osw.power_out() # time-series of the output
+p = osw.power_out # time-series of the output
 
 # For onshore wind, various turbine sizes are available, this is for 3.6 MW
 w = OnshoreWindModel3600(year_min=2013, year_max=2019, sites='all',
