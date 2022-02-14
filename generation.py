@@ -314,11 +314,14 @@ class OffshoreWindModel(GenerationModel):
         v = np.arange(0, self.v_cut_out, 0.1)  # wind speeds (m/s)
         P = [0.0]*len(v)  # power output (MW)
 
+        # assume a fixed Cp - calculate this value using the turbine's rated wind speed and rated power
+        Cp = self.turbine_size*1e6/(0.5* self.air_density*area*np.power(self.rated_wind_speed, 3))
+        
         for i in range(len(v)):
             if v[i] < self.v_cut_in:
                 continue
 
-            P[i] = 0.5*c_p(tsr, b)* self.air_density*area*np.power(v[i], 3)
+            P[i] = 0.5*Cp*self.air_density*area*np.power(v[i], 3)  # new power equation using fixed Cp
             P[i] = P[i] / 1e6  # W to MW
 
             if P[i] > self.turbine_size:
@@ -579,7 +582,7 @@ class SolarModel(GenerationModel):
                     t -= 1
                 # sunset
                 site_power[dn*24+t] = 0.1*site_power[dn*24+t-2]
-                site_power[dn*24+t-21] = 0.33*site_power[dn*24+t-2]
+                site_power[dn*24+t-1] = 0.33*site_power[dn*24+t-2]  # CQ correction to typo
             
             for t in range(len(site_power)):
                 self.power_out[t] += site_power[t]
@@ -594,7 +597,8 @@ class OnshoreWindModel(GenerationModel):
                  tilt=5, air_density=1.23, rotor_diameter=120,
                  rated_rotor_rpm=13, rated_wind_speed=12.5, v_cut_in=3,
                  v_cut_out=25, n_turbine=None, turbine_size=3.6, hub_height=90,
-                 data_path='', save_path='stored_model_runs/', save=True):
+                 data_path='', save_path='stored_model_runs/', save=True,
+                 data_height=100, alpha=0.143):         #this row added by CQ to calculate wind shear
         '''
         == description ==
         Initialises an OnshoreWindModel object. Searches for a saved result at
@@ -622,6 +626,8 @@ class OnshoreWindModel(GenerationModel):
         data_path: (str) path to file containing raw data
         save_path: (str) path to file where output will be saved
         save: (boo) determines whether to save the results of the run
+        data_height: (float) height at which wind speed data applies
+        alpha: (float) wind shear coefficient
 
         == returns ==
         None
@@ -640,6 +646,8 @@ class OnshoreWindModel(GenerationModel):
         self.n_turbine = n_turbine
         self.turbine_size = turbine_size
         self.hub_height = hub_height
+        self.data_height = data_height          
+        self.alpha = alpha  
 
         
         file_name = get_filename(sites,'w'+str(turbine_size),
@@ -707,13 +715,15 @@ class OnshoreWindModel(GenerationModel):
         # create the power curve at intervals of 0.1
         v = np.arange(0, self.v_cut_out, 0.1)  # wind speeds (m/s)
         P = [0.0]*len(v)  # power output (MW)
-
+         
+        # assume a fixed Cp - calculate this value using the turbine's rated wind speed and rated power
+        Cp = self.turbine_size*1e6/(0.5* self.air_density*area*np.power(self.rated_wind_speed, 3))
+        
         for i in range(len(v)):
             if v[i] < self.v_cut_in:
                 continue
 
-            P[i] = (0.5 * c_p(tsr, b) * self.air_density * area *
-                    np.power(v[i], 3))
+            P[i] = 0.5*Cp*self.air_density*area*np.power(v[i], 3)  # new power equation using fixed Cp
             P[i] = P[i] / 1e6  # W to MW
 
             if P[i] > self.turbine_size:
@@ -741,7 +751,7 @@ class OnshoreWindModel(GenerationModel):
                         continue
 
                     # adjust wind speed to hub height
-                    speed = speed*np.power(self.hub_height/50, 0.143)
+                    speed = speed*np.power(self.hub_height/self.data_height, self.alpha)
 
                     # prevent overload
                     if speed > v[-1]:
