@@ -236,7 +236,8 @@ class StorageModel:
             self.time_step(t, surplus[t])
             soc.append(self.charge/self.capacity)
             if self.output[t] < 0:
-                shortfalls += 1
+                if t > start_up_time:                
+                    shortfalls += 1
             
         reliability = 100 - ((shortfalls*100)/(len(surplus)
                                                -self.start_up_time))
@@ -539,7 +540,8 @@ class MultipleStorageAssets:
                             di_profiles[i]['d'][t%T] += output[t]-t_surplus
                         t_surplus = self.units[d_order[i]].output[t]
                 if output[t] < 0:
-                    shortfalls += 1
+                    if t > start_up_time:                    
+                        shortfalls += 1
             #soc[i].append(self.charge)
             
         reliability = 100 - ((shortfalls*100)/(len(surplus)-start_up_time))
