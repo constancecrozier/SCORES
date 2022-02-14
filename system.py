@@ -648,12 +648,13 @@ class ElectricitySystem:
             self.strategy = strategy
 
         if stor_cap is None:
-            print('Specifying an initial relative storange capacity will '+
-                  'imporve speed and accuracy')
+            print('Specifying an initial relative storage capacity will '+
+                  'improve speed and accuracy')
             stor_cap = [1.0/self.n_storage]*(self.n_storage-1)
 
         # If a set of generation capacities not given, search for one
         if gen_cap is None:
+            print('Searching for a starting set of generation capacities...')
             # perform a lhs search over different generator ratios
             if tic0 is None:
                tic0 = 2.8e-3*max(self.demand) # arbitrary 
@@ -662,13 +663,16 @@ class ElectricitySystem:
 
         # next find the optimal storage relative sizes for that generation
         if self.n_storage > 1:
-            print(gen_cap)
-            print(stor_cap)
+            print('Starting generation capacities are: ',gen_cap)
+            print('Searching for an optimal storage ratio for the given generation capacities...')
+            print('Starting storage ratio is: ',stor_cap)
             stor_cap = self.optimise_storage_ratio(gen_cap,stor_cap)
+            print('Optimal storage ratio is: ', stor_cap)
         else:
             self.cost(gen_cap)
 
         # finally optimise the total installed generators
+        print('Optimising the total installed capacities of generation and storage (ratios fixed)...')
         tic, cost = self.optimise_total_installed_capacity(sum(gen_cap),
                                                            stor_cap)
 
