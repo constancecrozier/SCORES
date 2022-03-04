@@ -10,6 +10,12 @@ icluded that are parameterised for Li-Ion, hydrogen, and thermal storage.
 import copy
 import numpy as np
 import datetime
+import matplotlib.pyplot as plt
+import optimise_configuration as opt_con
+#optimisation high level language, help found at https://www.ima.umn.edu/materials/2017-2018.2/W8.21-25.17/26326/3_PyomoFundamentals.pdf
+import pyomo.environ as pyo
+from pyomo.opt import SolverFactory
+import aggregatedEVs as aggEV
 
 class StorageModel:
     def __init__(self, eff_in, eff_out, self_dis, variable_cost, fixed_cost,
@@ -44,10 +50,15 @@ class StorageModel:
         self.capacity = capacity
         self.name = name
 
-        # These will be used to monitor storage usage
+        # These will be used to monitor storage usage
         self.en_in = 0 # total energy into storage (grid side)
         self.en_out = 0 # total energy out of storage (grid side)
         self.curt = 0 # total supply that could not be stored
+        
+        # from optimise setting only (added by Mac)
+        self.discharge = np.empty([]) #timeseries of discharge rate (grid side) MW
+        self.charge = np.empty([]) #timeseries of charge rate (grid side) MW
+        self.SOC = np.empty([]) #timeseries of Storage State of Charge (SOC) MWh
 
     def reset(self):
         '''
@@ -63,6 +74,10 @@ class StorageModel:
         self.en_in = 0
         self.en_out = 0
         self.curt = 0
+        
+        self.discharge = np.empty([]) 
+        self.charge = np.empty([]) 
+        self.SOC = np.empty([]) 
 
     def set_capacity(self, capacity):
         '''
@@ -96,6 +111,35 @@ class StorageModel:
                     + self.en_out*self.variable_cost*100/(self.eff_out
                                                           *self.n_years))
 
+    def plot_timeseries(self,start=0,end=-1):
+            
+        '''   
+        == parameters ==
+        start: (int) start time of plot
+        end: (int) end time of plot
+        '''
+        
+        if(self.discharge.shape == ()):
+            print('Charging timeseries not avaialable, try running MultipleStorageAssets.optimise_storage().')
+        else:
+            if(end<=0):
+                timehorizon = self.discharge.size
+            else:
+                timehorizon = end
+            plt.rc('font', size=12)
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.plot(range(start,timehorizon+1), self.SOC[start:timehorizon+1], color='tab:red', label='SOC')
+            ax.plot(range(start,timehorizon), self.charge[start:timehorizon], color='tab:blue', label='Charge')
+            ax.plot(range(start,timehorizon), self.discharge[start:timehorizon], color='tab:orange', label='Discharge')
+
+            # Same as above
+            ax.set_xlabel('Time (h)')
+            ax.set_ylabel('Power (MW), Energy (MWh)')
+            ax.set_title(self.name+' Charging Timeseries')
+            ax.grid(True)
+            ax.legend(loc='upper left');
+        
+    
     def self_discharge_timestep(self):
         '''
         == description ==
@@ -374,10 +418,15 @@ class MultipleStorageAssets:
         == returns ==
         None
         '''
-
+        self.assets = assets
         self.n_assets = len(assets)
         self.rel_capacity = [0.0]*len(assets)
         self.units = {}
+        
+        #added by cormac for plotting timeseries from optimisation
+        self.surplus = np.empty([]) #the last surplus used as input for optimise
+        self.Pfos = np.empty([]) #the necessary fossil fuel generation timeseries from the last optimise run
+        self.Shed = np.empty([]) #timeseries of surplus shedding
 
         if c_order is None:
             c_order = list(range(self.n_assets))
@@ -410,6 +459,10 @@ class MultipleStorageAssets:
         '''
         for i in range(self.n_assets):
             self.units[i].reset()
+        
+        self.surplus = np.empty([]) 
+        self.Pfos = np.empty([])
+        self.Shed = np.empty([])
 
     def set_capacity(self, capacity):
         '''
@@ -440,6 +493,19 @@ class MultipleStorageAssets:
         '''
         for i in range(self.n_assets):
             self.units[i].self_discharge_timestep()
+            
+    def is_MultipleStorageAssets(self):
+        '''
+        == description ==
+        Returns True if it is a Multiple Storage Asset
+
+        == parameters ==
+        None
+
+        == returns ==
+        (float) True
+        '''
+        return True
 
     def get_cost(self):
         '''
@@ -616,8 +682,55 @@ class MultipleStorageAssets:
         curtailed = self.curt/self.units[i].n_years
 
         return [stored, recovered, curtailed]
+    
+    def optimise_storage(self,surplus,fossilLimit):
+        
+        '''
+        == description ==
+        For a given surplus, returns the cost optimal storage mix to meet the specified reliability. Charge order not relevant here.
 
-    def size_storage(self, surplus, reliability, initial_capacity=None,
+        == parameters ==
+        surplus: (Array<float>) the surplus generation to be smoothed in MW
+        fossilLimit: (float) max acceptable amount of fossil fuel generated energy (MWh)
+
+        == returns ==
+        '''
+        
+        opt_con.optimise_configuration(surplus,fossilLimit,self,aggEV.MultipleAggregatedEVs([]))
+        
+        
+       
+
+    def plot_timeseries(self,start=0,end=-1):
+        
+        '''   
+        == parameters ==
+        start: (int) start time of plot
+        end: (int) end time of plot
+        
+        '''
+
+        if (self.Pfos.shape == ()):
+                print('Charging timeseries not avaialable, try running MultipleStorageAssets.optimise_storage().')
+        else:
+            if(end<=0):
+                timehorizon = self.Pfos.size
+            else:
+                timehorizon = end
+            plt.rc('font', size=12)
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.plot(range(start,timehorizon), self.Pfos[start:timehorizon], color='tab:red', label='FF Power')
+            ax.plot(range(start,timehorizon), self.Shed[start:timehorizon], color='tab:blue', label='Renewable Shed')
+            ax.plot(range(start,timehorizon), self.surplus[start:timehorizon], color='tab:orange', label='Surplus')
+    
+            # Same as above
+            ax.set_xlabel('Time (h)')
+            ax.set_ylabel('Power (MW), Energy (MWh)')
+            ax.set_title(' Power Timeseries')
+            ax.grid(True)
+            ax.legend(loc='upper left');   
+
+def size_storage(self, surplus, reliability, initial_capacity=None,
                      req_res=1e5,t_res=1, max_capacity=1e9,
                      start_up_time=0,strategy='ordered'):
         '''
