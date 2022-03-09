@@ -717,6 +717,8 @@ class ElectricitySystem:
 
 
     def plot_sensitivity_results(self,var_name):
+        
+        
         plt.figure(figsize=(7.7,4.5))
         plt.rcParams["font.family"] = 'serif'
         plt.rcParams['font.size'] = 10
@@ -757,6 +759,23 @@ class ElectricitySystem:
 
         plt.tight_layout()
         plt.show()
+    
+    def simulate(self, ordered_charging = False):
+        '''
+        == description ==
+        Simulates the system operation for the timeperiod
+
+        == parameters ==
+        ordered_charging: (<bool>) if True then the system is simulated semi-causally, with EVs being charged optimally based on 24hr forecasts and then the storage is charged in a specified order from the remaining surplus
+                                    if False, then the system operation is optimised over the entire year using the given capacities of generator, storage and charger types, outputting the new reliability
+
+        == returns ==
+        None
+        '''
+        
+        #if(not ordered_charging):
+            
+            
     
     def new_analyse(self,filename='log/system_analysis.txt'):
         '''
@@ -825,8 +844,11 @@ class ElectricitySystem:
         f.write('-------------------\n')
         f.write('ENERGY UTILISATION\n')
         f.write('-------------------\n\n')
-        f.write('Total Demand: '
+        f.write('Total Passive Demand: '
                 + str(int(sum(self.demand)*1e-3/(self.t_res*n_years))*1e-3)
+                + ' TWh/yr\n')
+        f.write('Total EV Driving Demand: '
+                + str(int(self.aggEV_list.driving_energy*1e-3/(self.t_res*n_years))*1e-3)
                 + ' TWh/yr\n')
         f.write('Total Supply: '
                 + str( int((sum(sum(self.gen_list[i].power_out)for i in range(len(self.gen_list)))*1e-3)*1e-3)
@@ -846,7 +868,7 @@ class ElectricitySystem:
         f.close()
 
             
-    def fully_optimise(self,fossilLimit):
+    def fully_optimise(self,fossilLimit,fixed_capacities=False):
         
         '''
         == description ==
@@ -873,7 +895,7 @@ class ElectricitySystem:
         MultStors = MultipleStorageAssets(self.stor_list)
             
         
-        opt_con.optimise_configuration(-np.asarray(self.demand),fossilLimit,MultStors,self.aggEV_list,self.gen_list)
+        opt_con.optimise_configuration(-np.asarray(self.demand),fossilLimit,MultStors,self.aggEV_list,self.gen_list,fixed_capacities = fixed_capacities)
         
         
     def plot_timeseries(self,start=0,end=-1):

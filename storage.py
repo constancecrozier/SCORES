@@ -730,7 +730,7 @@ class MultipleStorageAssets:
             ax.grid(True)
             ax.legend(loc='upper left');   
 
-def size_storage(self, surplus, reliability, initial_capacity=None,
+    def size_storage(self, surplus, reliability, initial_capacity=None,
                      req_res=1e5,t_res=1, max_capacity=1e9,
                      start_up_time=0,strategy='ordered'):
         '''

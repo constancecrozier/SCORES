@@ -98,7 +98,7 @@ def get_GB_demand(year_min,year_max,months,electrify_heat=False,evs=False,
     if(year_max==year_min):
         df = datetime.datetime(year_max+1,1,1)
     else:
-        df = datetime.datetime(year_max+1,1,1,1)
+        df = datetime.datetime(year_max+1,1,1)
     ms = {'JAN':1,'FEB':2,'MAR':3,'APR':4,'MAY':5,'JUN':6,'JUL':7,'AUG':8,
           'SEP':9,'OCT':10,'NOV':11,'DEC':12,'Jan':1,'Feb':2,'Mar':3,'Apr':4,
           'May':5,'Jun':6,'Jul':7,'Aug':8,'Sep':9,'Oct':10,'Nov':11,'Dec':12}
@@ -124,7 +124,7 @@ def get_GB_demand(year_min,year_max,months,electrify_heat=False,evs=False,
            
             if dt < d:
                 continue
-            if dt > df:
+            if dt >= df:
                 continue
             if ms[row[0][3:6]] not in months:
                 continue

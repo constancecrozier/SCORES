@@ -154,6 +154,7 @@ class MultipleAggregatedEVs:
         self.surplus = np.empty([]) #the last surplus used as input for optimise
         self.Pfos = np.empty([]) #the necessary fossil fuel generation timeseries from the last optimise run
         self.Shed = np.empty([]) #timeseries of surplus shedding
+        self.driving_energy = 0 #total energy used for driving in MW
                 
     def optimise_charger_type(self,surplus,fossilLimit,MultStor):
     
