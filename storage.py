@@ -128,7 +128,7 @@ class StorageModel:
                 timehorizon = end
             plt.rc('font', size=12)
             fig, ax = plt.subplots(figsize=(10, 6))
-            ax.plot(range(start,timehorizon+1), self.SOC[start:timehorizon+1], color='tab:red', label='SOC')
+            ax.plot(range(int(start),int(timehorizon+1)), self.SOC[int(start):int(timehorizon+1)], color='tab:red', label='SOC')
             ax.plot(range(start,timehorizon), self.charge[start:timehorizon], color='tab:blue', label='Charge')
             ax.plot(range(start,timehorizon), self.discharge[start:timehorizon], color='tab:orange', label='Discharge')
 
@@ -381,7 +381,7 @@ class BatteryStorageModel(StorageModel):
 
 class HydrogenStorageModel(StorageModel):
 
-    def __init__(self, eff_in=67, eff_out=56, self_dis=0, variable_cost=42.5,
+    def __init__(self, eff_in=67, eff_out=56, self_dis=0, variable_cost=6.5,
                  fixed_cost=120, max_c_rate=0.032, max_d_rate=0.15,
                  capacity=1):
         

@@ -72,7 +72,7 @@ def optimise_configuration(surplus,fossilLimit,Mult_Stor,Mult_aggEV,gen_list=[],
         #Power Balance
         model.PowerBalance = pyo.ConstraintList()
         for t in range(timehorizon):                                                    #this is a normalised power output between 0-1
-            model.PowerBalance.add(surplus[t] + sum(model.GenCapacity[g]*(gen_list[g].power_out[t]/max(gen_list[g].power_out)) for g in model.GenIndex)- model.Shed[t] + sum(model.D[i,t] * Mult_Stor.assets[i].eff_out/100 - model.C[i,t] * 100/Mult_Stor.assets[i].eff_in for i in model.StorageIndex) + model.Pfos[t] +  sum(model.EV_D[k,t,0] * Mult_aggEV.assets[k].eff_out/100  - sum( model.EV_C[k,t,b] * 100/Mult_aggEV.assets[k].eff_in for b in model.ChargeType)  for k in model.FleetIndex)== 0)
+            model.PowerBalance.add(surplus[t] + sum(model.GenCapacity[g]*(gen_list[g].power_out[t]/max(gen_list[g].power_out)) for g in model.GenIndex)- model.Shed[t] + sum(model.D[i,t] * Mult_Stor.assets[i].eff_out/100.0 - model.C[i,t] * 100.0/Mult_Stor.assets[i].eff_in for i in model.StorageIndex) + model.Pfos[t] +  sum(model.EV_D[k,t,0] * Mult_aggEV.assets[k].eff_out/100  - sum( model.EV_C[k,t,b] * 100/Mult_aggEV.assets[k].eff_in for b in model.ChargeType)  for k in model.FleetIndex)== 0)
             
         #Specified Amount of Fossil Fuel Input
         model.FossilLimit = pyo.ConstraintList()
@@ -102,8 +102,8 @@ def optimise_configuration(surplus,fossilLimit,Mult_Stor,Mult_aggEV,gen_list=[],
         for i in range(Mult_Stor.n_assets):
             for t in range(timehorizon):
                 model.maxSOC.add(model.SOC[i,t] <= model.BuiltCapacity[i]) #SOC less than maximum
-                model.maxD.add(model.D[i,t] <= model.BuiltCapacity[i] * Mult_Stor.assets[i].max_d_rate/100)
-                model.maxC.add(model.C[i,t] <= model.BuiltCapacity[i] * Mult_Stor.assets[i].max_c_rate/100)               
+                model.maxD.add(model.D[i,t] * Mult_Stor.assets[i].eff_out/100.0 <= model.BuiltCapacity[i] * Mult_Stor.assets[i].max_d_rate/100)
+                model.maxC.add(model.C[i,t] * 100.0/Mult_Stor.assets[i].eff_in <= model.BuiltCapacity[i] * Mult_Stor.assets[i].max_c_rate/100)               
 
                 if t == 0:
                     model.battery_charge_level.add(model.SOC[i,t]== 0.5*model.BuiltCapacity[i] + model.C[i,t] - model.D[i,t]) #batteries all start at half charge
@@ -126,11 +126,11 @@ def optimise_configuration(surplus,fossilLimit,Mult_Stor,Mult_aggEV,gen_list=[],
                 for t in range(timehorizon):
                     model.EV_maxSOC.add(model.EV_SOC[k,t,b] <= model.EV_TypeBuiltCapacity[k,b]*N[k,t]*Mult_aggEV.assets[k].max_SOC/1000) #constraint to limit the max SOC
                     model.EV_minSOC.add(model.EV_SOC[k,t,b] >= model.EV_TypeBuiltCapacity[k,b]*Mult_aggEV.assets[k].Nout[t]*Mult_aggEV.assets[k].Eout/1000 - model.EV_TypeBuiltCapacity[k,b]*Mult_aggEV.assets[k].Nin[t]*Mult_aggEV.assets[k].Ein/1000) #constraint to make sure that there is always enough charge for the EVs to plug out
-                    model.EV_maxC.add(model.EV_C[k,t,b] <= model.EV_TypeBuiltCapacity[k,b]*N[k,t]*Mult_aggEV.assets[k].max_c_rate/1000)
+                    model.EV_maxC.add(model.EV_C[k,t,b] * 100/Mult_aggEV.assets[k].eff_in <= model.EV_TypeBuiltCapacity[k,b]*N[k,t]*Mult_aggEV.assets[k].max_c_rate/1000)
                     
                     if(b==0):
                         #V2G specific Constraints
-                        model.EV_maxD.add(model.EV_D[k,t,b] <= model.EV_TypeBuiltCapacity[k,b]*N[k,t]*Mult_aggEV.assets[k].max_d_rate/1000)
+                        model.EV_maxD.add(model.EV_D[k,t,b] * Mult_aggEV.assets[k].eff_out/100 <= model.EV_TypeBuiltCapacity[k,b]*N[k,t]*Mult_aggEV.assets[k].max_d_rate/1000)
                         
                         if t == 0:
                             model.EV_battery_charge_level.add(model.EV_SOC[k,t,b] == 0.5 * model.EV_TypeBuiltCapacity[k,b]*N[k,t]*Mult_aggEV.assets[k].max_SOC/1000 + model.EV_C[k,t,b] - model.EV_D[k,t,b] - model.EV_TypeBuiltCapacity[k,b]*Mult_aggEV.assets[k].Nout[t]*Mult_aggEV.assets[k].Eout/1000 + model.EV_TypeBuiltCapacity[k,b]*Mult_aggEV.assets[k].Nin[t]*Mult_aggEV.assets[k].Ein/1000) 
