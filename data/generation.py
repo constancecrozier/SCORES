@@ -200,7 +200,7 @@ class GenerationModel:
 class TidalStreamTurbineModel(GenerationModel):
 
     def __init__(self, sites='all', year_min=2013, year_max=2019,
-                 months=list(range(1, 13)), fixed_cost=445400, variable_cost=3,
+                 months=list(range(1, 13)), fixed_cost=445400, variable_cost=0,
                  tilt=5, water_density=997.0, rotor_diameter=15,
                  rated_rotor_rpm=10, rated_water_speed=2.1, v_cut_in=0.7,
                  v_cut_out=10, n_turbine=None, turbine_size=2, data_path='',
