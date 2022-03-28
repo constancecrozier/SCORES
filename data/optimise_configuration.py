@@ -99,7 +99,12 @@ def optimise_configuration(surplus,fossilLimit,Mult_Stor,Mult_aggEV,gen_list=[],
         model.battery_charge_level = pyo.ConstraintList()
         model.maxD = pyo.ConstraintList()
         model.maxC = pyo.ConstraintList()
+        model.storagelimits = pyo.ConstraintList()
         for i in range(Mult_Stor.n_assets):
+            if(len(Mult_Stor.assets[i].limits)>0):
+                model.storagelimits.add(model.BuiltCapacity[i] >=  Mult_Stor.assets[i].limits[0])
+                model.storagelimits.add(model.BuiltCapacity[i] <=  Mult_Stor.assets[i].limits[1])
+                
             for t in range(timehorizon):
                 model.maxSOC.add(model.SOC[i,t] <= model.BuiltCapacity[i]) #SOC less than maximum
                 model.maxD.add(model.D[i,t] * Mult_Stor.assets[i].eff_out/100.0 <= model.BuiltCapacity[i] * Mult_Stor.assets[i].max_d_rate/100)

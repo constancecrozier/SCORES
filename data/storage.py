@@ -19,7 +19,7 @@ import aggregatedEVs as aggEV
 
 class StorageModel:
     def __init__(self, eff_in, eff_out, self_dis, variable_cost, fixed_cost,
-                 max_c_rate, max_d_rate, name, capacity=1):
+                 max_c_rate, max_d_rate, name, capacity=1, limits = []):
         '''
         == description ==
         .
@@ -34,6 +34,7 @@ class StorageModel:
         max_d_rate: (float) the maximum discharging rate (% per hour)
         name: (str) the name of the asset - for use in graph plotting
         capacity: (float) MWh of storage installed
+        limits: array[(float)] the [min,max] capacity in MWh
 
         NOTE: both c and d rate defined FROM THE GRID SIDE
 
@@ -49,6 +50,7 @@ class StorageModel:
         self.max_d_rate = max_d_rate
         self.capacity = capacity
         self.name = name
+        self.limits = limits
 
         # These will be used to monitor storage usage
         self.en_in = 0 # total energy into storage (grid side)
@@ -444,6 +446,7 @@ class MultipleStorageAssets:
         total_capacity = sum(self.rel_capacity)
         self.capacity = total_capacity
         for i in range(self.n_assets):
+            print('Tot Cap: ', total_capacity)
             self.rel_capacity[i] = float(self.rel_capacity[i])/total_capacity
 
     def reset(self):

@@ -198,12 +198,13 @@ class GenerationModel:
         return p
         
 class TidalStreamTurbineModel(GenerationModel):
+    
 
     def __init__(self, sites='all', year_min=2013, year_max=2019,
                  months=list(range(1, 13)), fixed_cost=445400, variable_cost=0,
-                 tilt=5, water_density=997.0, rotor_diameter=15,
-                 rated_rotor_rpm=10, rated_water_speed=2.1, v_cut_in=0.7,
-                 v_cut_out=10, n_turbine=None, turbine_size=2, data_path='',
+                 water_density=1027.0, rotor_diameter=20,
+                 rated_water_speed=2.91, v_cut_in=0.88, Cp = 0.37,
+                 v_cut_out=10, n_turbine=None, turbine_size=1.47, data_path='',
                  save_path='stored_model_runs/', save=True):
         '''
         == description ==
@@ -219,12 +220,11 @@ class TidalStreamTurbineModel(GenerationModel):
         months: (Array<int>) list of months to be included in the simulation
         fixed_cost: (float) cost incurred per MW of installation in GBP
         variable_cost: (float) cost incurred per MWh of generation in GBP
-        tilt: (float) blade tilt in degrees
         water_density: (float) density of water in kg/m3
         rotor_diameter: (float) rotor diameter in m
-        rated_rotor_rpm: (float) rated rotation speed in rpm
         rated_wind_speed: (float) rated wind speed in m/s
         v_cut_in: (float) cut in wind speed in m/s
+        Cp: (float) power coefficient, assumed constant over flow speeds
         v_cut_out: (float) cut out wind speed in m/s
         n_turbine: (Array<int>) number of turbines installed at each site
         turbine_size: (float) size of each turbine in MW
@@ -238,15 +238,15 @@ class TidalStreamTurbineModel(GenerationModel):
         super().__init__(sites, year_min, year_max, months, fixed_cost,
                          variable_cost, 'Tidal Stream',data_path,save_path)
             
-        self.tilt = tilt
+       
         self.water_density = water_density
         self.rotor_diameter = rotor_diameter
-        self.rated_rotor_rpm = rated_rotor_rpm
         self.rated_water_speed = rated_water_speed
         self.v_cut_in = v_cut_in
         self.v_cut_out = v_cut_out
         self.n_turbine = n_turbine
         self.turbine_size = turbine_size
+        self.Cp = Cp
         
         file_name = get_filename(sites,'tidal',year_min,year_max,months)
         if file_name == '':
@@ -312,7 +312,7 @@ class TidalStreamTurbineModel(GenerationModel):
         P = [0.0]*len(v)  # power output (MW)
 
         # assume a fixed Cp - calculate this value using the turbine's rated wind speed and rated power
-        Cp = self.turbine_size*1e6/(0.5* self.water_density*area*np.power(self.rated_water_speed, 3))
+        Cp = self.Cp
         
         for i in range(len(v)):
             if v[i] < self.v_cut_in:
@@ -926,6 +926,62 @@ class OnshoreWindModel(GenerationModel):
                     self.power_out[dn*24 + hr] += ((f*P[p2] + (1 - f)*P[p1])
                                                      *self.n_turbine[si])
                     self.n_good_points[dn* 24 + hr] += 1
+
+class TidalStreamTurbineModelFast(TidalStreamTurbineModel):
+#suited to the pentland Firth region
+    def __init__(self, sites='all', year_min=2013, year_max=2019,
+                 months=list(range(1, 13)),data_path='',
+                 save_path='stored_model_runs/',save=True):
+        
+        super().__init__(sites=sites, year_min=year_min, year_max=year_max,
+                         months=months, 
+                         water_density=1027.0, rotor_diameter=20,
+                         rated_water_speed=3.6,
+                         v_cut_in=1.08, Cp = 0.37, v_cut_out=30, n_turbine=None,
+                         turbine_size=2.78,data_path=data_path,
+                         save_path=save_path,save=save)
+        
+class TidalStreamTurbineModelFastFirm(TidalStreamTurbineModel):
+#suited to the pentland Firth region
+    def __init__(self, sites='all', year_min=2013, year_max=2019,
+                 months=list(range(1, 13)),data_path='',
+                 save_path='stored_model_runs/',save=True):
+        
+        super().__init__(sites=sites, year_min=year_min, year_max=year_max,
+                         months=months, 
+                         water_density=1027.0, rotor_diameter=20,
+                         rated_water_speed=2.24,
+                         v_cut_in=0.67, Cp = 0.37, v_cut_out=30, n_turbine=None,
+                         turbine_size=0.67,data_path=data_path,
+                         save_path=save_path,save=save)
+        
+class TidalStreamTurbineModelSlow(TidalStreamTurbineModel):
+#suited to the Anglesey and the Solent regions.
+    def __init__(self, sites='all', year_min=2013, year_max=2019,
+                 months=list(range(1, 13)),data_path='',
+                 save_path='stored_model_runs/',save=True):
+        
+        super().__init__(sites=sites, year_min=year_min, year_max=year_max,
+                         months=months, 
+                         water_density=1027.0, rotor_diameter=20,
+                         rated_water_speed=2.3,
+                         v_cut_in=0.7, Cp = 0.37, v_cut_out=30, n_turbine=None,
+                         turbine_size=0.75,data_path=data_path,
+                         save_path=save_path,save=save)
+        
+class TidalStreamTurbineModelSlowFirm(TidalStreamTurbineModel):
+#suited to the Anglesey and the Solent regions.
+    def __init__(self, sites='all', year_min=2013, year_max=2019,
+                 months=list(range(1, 13)),data_path='',
+                 save_path='stored_model_runs/',save=True):
+        
+        super().__init__(sites=sites, year_min=year_min, year_max=year_max,
+                         months=months, 
+                         water_density=1027.0, rotor_diameter=20,
+                         rated_water_speed=1.45,
+                         v_cut_in=0.43, Cp = 0.37, v_cut_out=30, n_turbine=None,
+                         turbine_size=0.18,data_path=data_path,
+                         save_path=save_path,save=save)
 
 class OnshoreWindModel5800(OnshoreWindModel):
 
