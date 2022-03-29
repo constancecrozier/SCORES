@@ -446,7 +446,6 @@ class MultipleStorageAssets:
         total_capacity = sum(self.rel_capacity)
         self.capacity = total_capacity
         for i in range(self.n_assets):
-            print('Tot Cap: ', total_capacity)
             self.rel_capacity[i] = float(self.rel_capacity[i])/total_capacity
 
     def reset(self):

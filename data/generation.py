@@ -14,7 +14,7 @@ from fns import lambda_i, c_p, get_filename
 class GenerationModel:
     # Base class for a generation model
     def __init__(self, sites, year_min, year_max, months, fixed_cost,
-                 variable_cost, name, data_path, save_path):
+                 variable_cost, name, data_path, save_path,limits=[]):
         '''
         == description ==
         This function initialises the class, builds empty arrays to store the
@@ -28,6 +28,7 @@ class GenerationModel:
         months: (Array<int>) list of months to be included in the simulation
         fixed_cost: (float) cost incurred per MW-year of installation in GBP
         variable_cost: (float) cost incurred per MWh of generation in GBP
+        limits: (array<float>) used for .full_optimise to define the max and min installed generation in MWh ([min,max])
 
         == returns ==
         None
@@ -41,6 +42,7 @@ class GenerationModel:
         self.name = name
         self.data_path = data_path
         self.save_path = save_path
+        self.limits = limits
 
         self.date_map = {}
         n = 0

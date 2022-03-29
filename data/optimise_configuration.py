@@ -3,6 +3,8 @@ import numpy as np
 #low level algorithmic solve performed by solver
 import pyomo.environ as pyo
 from pyomo.opt import SolverFactory
+import time
+
 
 def optimise_configuration(surplus,fossilLimit,Mult_Stor,Mult_aggEV,gen_list=[],fixed_capacities =  False):
         '''
@@ -17,9 +19,9 @@ def optimise_configuration(surplus,fossilLimit,Mult_Stor,Mult_aggEV,gen_list=[],
         fixed_capacities: (bool) when true, this is run as an operational optimiser rather than an investement tool.
         == returns ==
         '''
-        print('Remember, surplus timeseries must have hourly entries for this to work. ')
-        print('Assuming hourly timeseries, Forming Optimisation Model...')
-
+        #print('Remember, surplus timeseries must have hourly entries for this to work. ')
+        print('Forming Optimisation Model...')
+        start = time.time()
             
             
         # Create a solver #
@@ -55,6 +57,23 @@ def optimise_configuration(surplus,fossilLimit,Mult_Stor,Mult_aggEV,gen_list=[],
         model.EV_D=pyo.Var(model.FleetIndex, model.TimeIndex, model.ChargeType, within = pyo.NonNegativeReals) #hourly discharging rate of each subset of charger types within each fleet(MW)
         model.EV_SOC=pyo.Var(model.FleetIndex, model.TimeIndex, model.ChargeType, within = pyo.NonNegativeReals) #state of charge of the asset at end of timestep t (MWh)    
         
+        #Generators
+        model.GenCapacity = pyo.Var(model.GenIndex,within = pyo.NonNegativeReals) #the built capacity (MW) of each generator type
+        
+             
+        # Declare Parameters #
+        
+        #Parameters save time on setting up the model for repeated runs, as they can be adjusted without having to rebuild the entire model
+        #Declaring Parameters is fiddly, needs to be done with an enumerated dictionary of tuples as below
+        model.Demand = pyo.Param(model.TimeIndex, initialize = dict(enumerate(surplus)), within = pyo.Reals)
+        
+        ref = {} #this gives the normalised power output of generator g at time t (multiplied by the built capacity to give the MW)
+        for g in model.GenIndex:
+            for t in model.TimeIndex:
+                ref[g,model.TimeIndex[t]] = gen_list[g].power_out[t]/max(gen_list[g].power_out)
+        model.NormalisedGen = pyo.Param(model.GenIndex, model.TimeIndex, within = pyo.NonNegativeReals, initialize = ref)
+        
+        
         N = np.empty([Mult_aggEV.n_assets,timehorizon]) #the normalised number of EVs connected at a given time (EV connections/disconnections are assumed to occur at teh start of the timestep)
         for k in range(Mult_aggEV.n_assets):
             for t in range(timehorizon):
@@ -63,8 +82,6 @@ def optimise_configuration(surplus,fossilLimit,Mult_Stor,Mult_aggEV,gen_list=[],
                 else:
                     N[k,t] = N[k,t-1] + Mult_aggEV.assets[k].Nin[t] - Mult_aggEV.assets[k].Nout[t]
         
-        #Generators
-        model.GenCapacity = pyo.Var(model.GenIndex,within = pyo.NonNegativeReals) #the built capacity (MW) of each generator type
         
         # Declare constraints #
         
@@ -72,28 +89,20 @@ def optimise_configuration(surplus,fossilLimit,Mult_Stor,Mult_aggEV,gen_list=[],
         #Power Balance
         model.PowerBalance = pyo.ConstraintList()
         for t in range(timehorizon):                                                    #this is a normalised power output between 0-1
-            model.PowerBalance.add(surplus[t] + sum(model.GenCapacity[g]*(gen_list[g].power_out[t]/max(gen_list[g].power_out)) for g in model.GenIndex)- model.Shed[t] + sum(model.D[i,t] * Mult_Stor.assets[i].eff_out/100.0 - model.C[i,t] * 100.0/Mult_Stor.assets[i].eff_in for i in model.StorageIndex) + model.Pfos[t] +  sum(model.EV_D[k,t,0] * Mult_aggEV.assets[k].eff_out/100  - sum( model.EV_C[k,t,b] * 100/Mult_aggEV.assets[k].eff_in for b in model.ChargeType)  for k in model.FleetIndex)== 0)
+            #model.PowerBalance.add(surplus[t] + sum(model.GenCapacity[g]*(gen_list[g].power_out[t]/max(gen_list[g].power_out)) for g in model.GenIndex)- model.Shed[t] + sum(model.D[i,t] * Mult_Stor.assets[i].eff_out/100.0 - model.C[i,t] * 100.0/Mult_Stor.assets[i].eff_in for i in model.StorageIndex) + model.Pfos[t] +  sum(model.EV_D[k,t,0] * Mult_aggEV.assets[k].eff_out/100  - sum( model.EV_C[k,t,b] * 100/Mult_aggEV.assets[k].eff_in for b in model.ChargeType)  for k in model.FleetIndex)== 0)
+            model.PowerBalance.add(model.Demand[t] + sum(model.GenCapacity[g]*ref[g,t] for g in model.GenIndex)- model.Shed[t] + sum(model.D[i,t] * Mult_Stor.assets[i].eff_out/100.0 - model.C[i,t] * 100.0/Mult_Stor.assets[i].eff_in for i in model.StorageIndex) + model.Pfos[t] +  sum(model.EV_D[k,t,0] * Mult_aggEV.assets[k].eff_out/100  - sum( model.EV_C[k,t,b] * 100/Mult_aggEV.assets[k].eff_in for b in model.ChargeType)  for k in model.FleetIndex)== 0)
             
         #Specified Amount of Fossil Fuel Input
         model.FossilLimit = pyo.ConstraintList()
-        if(not fixed_capacities):
-            model.FossilLimit.add(sum(model.Pfos[t] for t in model.TimeIndex) <= fossilLimit)
-        
-        #fix capacities if needed
-        model.fixed_cap = pyo.ConstraintList()
-        if(fixed_capacities):
-            for i in range(Mult_Stor.n_assets):
-                model.fixed_cap.add(model.BuiltCapacity[i] == Mult_Stor.assets[i].capacity)
-                
-            for g in model.GenIndex:
-                model.fixed_cap.add(model.GenCapacity[g] == gen_list[g].total_installed_capacity)
-                
-            for k in range(Mult_aggEV.n_assets):
-                for b in model.ChargeType:
-                    model.fixed_cap.add(model.EV_TypeBuiltCapacity[k,b] == Mult_aggEV.assets[k].chargertype[b] * Mult_aggEV.assets[k].number)
-                    
-        
-        
+        model.FossilLimit.add(sum(model.Pfos[t] for t in model.TimeIndex) <= fossilLimit)
+    
+        #Generator Constraints
+        model.genlimits = pyo.ConstraintList()
+        for g in model.GenIndex:
+            if(len(gen_list[g].limits)>0):
+                model.genlimits.add(model.GenCapacity[g] >= gen_list[g].limits[0])
+                model.genlimits.add(model.GenCapacity[g] <= gen_list[g].limits[1])
+    
         #Storage Constraints
         model.maxSOC = pyo.ConstraintList()
         model.battery_charge_level = pyo.ConstraintList()
@@ -123,11 +132,17 @@ def optimise_configuration(surplus,fossilLimit,Mult_Stor,Mult_aggEV,gen_list=[],
         model.EV_maxD = pyo.ConstraintList()
         model.EV_maxC = pyo.ConstraintList()
         model.Built_Asset_Sum = pyo.ConstraintList()
+        model.ChargerTypeLimits = pyo.ConstraintList() #allows the user to specify the max number of a certain charger type
+        
         for k in range(Mult_aggEV.n_assets):
             #constraint to make sure all the different built capacities add to one
             model.Built_Asset_Sum.add(sum(model.EV_TypeBuiltCapacity[k,b] for b in model.ChargeType) == Mult_aggEV.assets[k].number)
             
             for b in model.ChargeType:
+                if (len(Mult_aggEV.assets[k].limits) > 0):
+                    model.ChargerTypeLimits.add(model.EV_TypeBuiltCapacity[k,b] >= Mult_aggEV.assets[k].limits[2*b])
+                    model.ChargerTypeLimits.add(model.EV_TypeBuiltCapacity[k,b] <= Mult_aggEV.assets[k].limits[2*b+1])
+                    
                 for t in range(timehorizon):
                     model.EV_maxSOC.add(model.EV_SOC[k,t,b] <= model.EV_TypeBuiltCapacity[k,b]*N[k,t]*Mult_aggEV.assets[k].max_SOC/1000) #constraint to limit the max SOC
                     model.EV_minSOC.add(model.EV_SOC[k,t,b] >= model.EV_TypeBuiltCapacity[k,b]*Mult_aggEV.assets[k].Nout[t]*Mult_aggEV.assets[k].Eout/1000 - model.EV_TypeBuiltCapacity[k,b]*Mult_aggEV.assets[k].Nin[t]*Mult_aggEV.assets[k].Ein/1000) #constraint to make sure that there is always enough charge for the EVs to plug out
@@ -150,21 +165,47 @@ def optimise_configuration(surplus,fossilLimit,Mult_Stor,Mult_aggEV,gen_list=[],
                             model.EV_battery_charge_level.add(model.EV_SOC[k,t,b] == model.EV_SOC[k,t-1,b] + model.EV_C[k,t,b] - model.EV_TypeBuiltCapacity[k,b]*Mult_aggEV.assets[k].Nout[t]*Mult_aggEV.assets[k].Eout/1000 + model.EV_TypeBuiltCapacity[k,b]*Mult_aggEV.assets[k].Nin[t]*Mult_aggEV.assets[k].Ein/1000) 
 
         # Declare objective function #
-        if(not fixed_capacities):
-            model.obj=pyo.Objective(                                                                                                            #adding this small 0.05 stops the model from charging and discharging simultaneously unecessarily                                                                                                                                      this penalises fossil fuel use to encourage healthier charging behaviour
-            expr=sum((timehorizon/(365*24))*model.GenCapacity[g]*gen_list[g].fixed_cost + model.GenCapacity[g]*gen_list[g].variable_cost*sum(gen_list[g].power_out[t]/max(gen_list[g].power_out) for t in model.TimeIndex) for g in model.GenIndex) + sum((timehorizon/(365*24))*Mult_Stor.assets[i].fixed_cost * model.BuiltCapacity[i] for i in model.StorageIndex) + sum( sum((Mult_Stor.assets[i].variable_cost+0.05) * model.D[i,t] for t in model.TimeIndex) for i in model.StorageIndex) + sum(sum((timehorizon/(365*24)) * Mult_aggEV.assets[k].chargercost[b] * model.EV_TypeBuiltCapacity[k,b] for b in model.ChargeType)for k in model.FleetIndex) + sum(model.Pfos[t] for t in model.TimeIndex) + sum( sum((0.05) * model.EV_D[k,t,0] for t in model.TimeIndex) for k in model.FleetIndex),   
-            sense=pyo.minimize)
-        else:
-            #with fixed capacities, the only thing to minimise is the amount of fossil fuels used
-            model.obj=pyo.Objective(                                
-            expr=sum(100 * model.Pfos[t] for t in model.TimeIndex), 
-            sense=pyo.minimize)
+        model.obj=pyo.Objective(                                                                                                            #adding this small 0.05 stops the model from charging and discharging simultaneously unecessarily                                                                                                                                      this penalises fossil fuel use to encourage healthier charging behaviour
+        expr=sum((timehorizon/(365*24))*model.GenCapacity[g]*gen_list[g].fixed_cost + model.GenCapacity[g]*gen_list[g].variable_cost*sum(gen_list[g].power_out[t]/max(gen_list[g].power_out) for t in model.TimeIndex) for g in model.GenIndex) + sum((timehorizon/(365*24))*Mult_Stor.assets[i].fixed_cost * model.BuiltCapacity[i] for i in model.StorageIndex) + sum( sum((Mult_Stor.assets[i].variable_cost+0.05) * model.D[i,t] for t in model.TimeIndex) for i in model.StorageIndex) + sum(sum((timehorizon/(365*24)) * Mult_aggEV.assets[k].chargercost[b] * model.EV_TypeBuiltCapacity[k,b] for b in model.ChargeType)for k in model.FleetIndex) + sum(model.Pfos[t] for t in model.TimeIndex) + sum( sum((0.05) * model.EV_D[k,t,0] for t in model.TimeIndex) for k in model.FleetIndex),   
+        sense=pyo.minimize)
         
-        print('Searching for Optimal Solution...')
+        end = time.time()
+        print('Model Formation Complete after: ',int(end - start), 's')
         
         # Solve #
-        opt.solve(model)    
-        print('Solved')
+        print('Searching for Optimal Solution...')
+        start = time.time()
+        
+        opt.solve(model)  
+        
+        end = time.time()
+        print('Solved after: ',int(end - start), 's')
+        
+        
+        
+## Second Iteration!
+        print('Forming Optimisation Model...')
+        start = time.time()
+        
+        model.Demand = pyo.Param(model.TimeIndex, initialize = dict(enumerate(surplus/2)), within = pyo.Reals)
+        
+        ref = {} #this gives the normalised power output of generator g at time t (multiplied by the built capacity to give the MW)
+        for g in model.GenIndex:
+            for t in model.TimeIndex:
+                ref[g,model.TimeIndex[t]] = gen_list[g].power_out[t]/max(gen_list[g].power_out)*2
+        model.NormalisedGen = pyo.Param(model.GenIndex, model.TimeIndex, within = pyo.NonNegativeReals, initialize = ref)
+        
+        end = time.time()
+        print('Model Formation Complete after: ',int(end - start), 's')
+        
+        # Solve #
+        print('Searching for Optimal Solution...')
+        start = time.time()
+        
+        opt.solve(model)  
+        
+        end = time.time()
+        print('Solved after: ',int(end - start), 's')
         
         # Store Results #  
         #print('Total Cost System Cost: £',int(pyo.value(model.obj)*1e-6)*1e-3,'bn')

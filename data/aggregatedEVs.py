@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 
 class AggregatedEVModel:
     def __init__(self, eff_in, eff_out, chargertype, chargercost, 
-                 max_c_rate, max_d_rate, min_SOC, max_SOC, number, initial_number, Ein, Eout, Nin, Nout, name):
+                 max_c_rate, max_d_rate, min_SOC, max_SOC, number, initial_number, Ein, Eout, Nin, Nout, name, limits = []):
         '''
         == description ==
         Describes a fleet of EVs. Their charger costs/type can be specified or optimised. Behavioural plugin patterns are read in via timeseries.
@@ -35,7 +35,7 @@ class AggregatedEVModel:
         Nin: (Array<float>) Normalised timeseries of EV connections (e.g. 0.1 for 1000 chargers says 100 EVs unplug at this timestep), if smaller than timehorizon, array will be scaled up)
         Nout: (Array<float>) Timeseries of EV disconnections (e.g. 0.1 for 1000 chargers says 100 EVs unplug at this timestep), if smaller than timehorizon, array will be scaled up)
         name: (string) Name of the fleet (e.g. Domestic, Work, Commercial) Used for labelling plots
-
+        limits: array<float> Used in Full_optimise to limits the number of charger types built [MinV2G, MaxV2G, MinUnidirectional, MaxUnidirectional]
         == returns ==
         None
         '''
@@ -54,6 +54,7 @@ class AggregatedEVModel:
         self.Nin = Nin
         self.Nout = Nout 
         self.name = name 
+        self.limits = limits
 
         # These will be used to monitor storage usage
         self.V2G_en_in = 0 # total energy into storage (grid side)
