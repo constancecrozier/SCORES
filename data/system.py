@@ -147,7 +147,7 @@ class ElectricitySystem:
                         strategy='ordered'):
         '''
         == description ==
-        Calculates the percentage of demand that can be met with current system
+        Calculates the percentage of time that demand that can be met with current system
 
         == parameters ==
         None
@@ -868,7 +868,7 @@ class ElectricitySystem:
         f.close()
 
             
-    def fully_optimise(self,fossilLimit,fixed_capacities=False):
+    def fully_optimise(self,fossilLimit,SimYears=[],YearRange=[]):
         
         '''
         == description ==
@@ -895,7 +895,7 @@ class ElectricitySystem:
         MultStors = MultipleStorageAssets(self.stor_list)
             
         
-        opt_con.optimise_configuration(-np.asarray(self.demand),fossilLimit,MultStors,self.aggEV_list,self.gen_list,fixed_capacities = fixed_capacities)
+        opt_con.optimise_configuration(-np.asarray(self.demand),fossilLimit,MultStors,self.aggEV_list,self.gen_list, SimYears = SimYears,YearRange = YearRange)
         
         
     def plot_timeseries(self,start=0,end=-1):

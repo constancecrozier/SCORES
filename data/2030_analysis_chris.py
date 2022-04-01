@@ -16,8 +16,8 @@ import aggregatedEVs as aggEV
 '''
 Initialise generators
 '''
-ymin = 2013
-ymax = 2013
+ymin = 2014
+ymax = 2015
 
 # osw1 = OffshoreWindModel(year_min=ymin, year_max=ymax, sites=[119],
 #                         data_path='data/150m/')
@@ -67,11 +67,11 @@ storage = [B,H]
 Dom1 = aggEV.AggregatedEVModel(eff_in=95, eff_out=95, chargertype=np.zeros([3]), chargercost=np.array([2000/20,800/20,50/20]), max_c_rate=10, max_d_rate=10, min_SOC=0, max_SOC=40, number=200000,initial_number = 0.9, Ein = 20, Eout = 36, Nin = np.array([0,0,0,0,0,0,0,0,0,0.1,0,0,0,0,0,0.1,0.1,0.1,0.1,0,0,0,0,0]),Nout = np.array([0,0,0,0,0,0,0,0.2,0.2,0,0,0,0,0,0,0.1,0,0,0,0,0,0,0,0]),name = 'Domestic1')
 
 #Dom1.limits = [0,100000,0,4000000000]
-MultsFleets = aggEV.MultipleAggregatedEVs([Dom1])
+#MultsFleets = aggEV.MultipleAggregatedEVs([Dom1])
 
 # Initialise electricity sytem with existing GB demand
 es = ElectricitySystemGB(generators, storage, year_min = ymin, year_max = ymax,
-                         reliability = 99, strategy='ordered', start_up_time=24,aggEV_list = MultsFleets)
+                         reliability = 99, strategy='ordered', start_up_time=24)  #,aggEV_list = MultsFleets)
 
 # Search for the optimal system
 #start = time.time()
@@ -80,17 +80,17 @@ es = ElectricitySystemGB(generators, storage, year_min = ymin, year_max = ymax,
 #print('Old Method Time: ',end - start, 's')
 
 
-es.fully_optimise(sum(es.demand)*0.01,fixed_capacities=False)
+es.fully_optimise(sum(es.demand)*0.01,SimYears=[2014,2015],YearRange=[ymin,ymax])
 
-es.new_analyse(filename='log/new3.txt')
+#es.new_analyse(filename='log/new2016.txt')
 
 ## Plotting
-start=int(1000)
-end = int(1500)
-es.plot_timeseries(start,end)
-es.stor_list[0].plot_timeseries(start,end)
-es.stor_list[1].plot_timeseries(start,end)
-es.aggEV_list.assets[0].plot_timeseries(start,end)
+# start=int(1000)
+# end = int(1500)
+# es.plot_timeseries(start,end)
+# es.stor_list[0].plot_timeseries(start,end)
+# es.stor_list[1].plot_timeseries(start,end)
+# es.aggEV_list.assets[0].plot_timeseries(start,end)
 
 
 
