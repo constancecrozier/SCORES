@@ -19,7 +19,7 @@ import aggregatedEVs as aggEV
 
 class StorageModel:
     def __init__(self, eff_in, eff_out, self_dis, variable_cost, fixed_cost,
-                 max_c_rate, max_d_rate, name, capacity=1):
+                 max_c_rate, max_d_rate, name, capacity=1, limits = []):
         '''
         == description ==
         .
@@ -34,6 +34,7 @@ class StorageModel:
         max_d_rate: (float) the maximum discharging rate (% per hour)
         name: (str) the name of the asset - for use in graph plotting
         capacity: (float) MWh of storage installed
+        limits: array[(float)] the [min,max] capacity in MWh
 
         NOTE: both c and d rate defined FROM THE GRID SIDE
 
@@ -49,6 +50,7 @@ class StorageModel:
         self.max_d_rate = max_d_rate
         self.capacity = capacity
         self.name = name
+        self.limits = limits
 
         # These will be used to monitor storage usage
         self.en_in = 0 # total energy into storage (grid side)
@@ -584,6 +586,7 @@ class MultipleStorageAssets:
         for t in range(len(surplus)):
             # self discharge all assets
             self.self_discharge_timestep()
+            
 
             t_surplus = copy.deepcopy(surplus[t])
     
@@ -682,6 +685,176 @@ class MultipleStorageAssets:
         curtailed = self.curt/self.units[i].n_years
 
         return [stored, recovered, curtailed]
+
+    def causal_system_operation(self, surplus, c_order, d_order, Mult_aggEV, t_res=1,
+                              start_up_time=0, plot_timeseries = False,V2G_discharge_threshold = 0.0):
+        '''
+        == description ==
+        This function is similiar to charge specified order but with two key differences:
+            1) It allows aggregated EVs to be operated also (the order of their discharge specified). To do this it
+                it splits each EV fleet into two batteries, one for V2G and one for Smart, these are then operated seperately.
+            2) It outputs two new outputs: system reliability based on amount of demand served by renewables
+               rather than the old reliability metric based on time where renewables don't cover everything; and 
+               EV reliability which gives the % under delivery of power to the EVs. 
+
+        == parameters ==
+        Mult_aggEV: (MultipleAggregatedEVs) different fleets of EVs with defined chargertype ratios!
+        c_order: list [int] of order of the discharge, where the first entry is for the storage units, later half is for the agg EV fleets.+
+        plot_timeseries: (bool), if true will plot the storage SOCs and charge/discharge, as well as the surplus before and after adjustement
+        V2G_discharge_threshold: (float), The kWh limit for the EV batteries, below whcih V2G will not discharge. The state of charge can still drop below this due to driving energy, but V2G will not discharge when the SOC is less than this value.
+        
+        == returns ==
+        [power_deficit,EV_Reliability]: Power deficit is the amount of energy in MWh that needs to be supplied by fossil fuels (including the energy needed for topping up the EVs if they are set to unplug below their plugout SOC)
+                                        EV_Reliability: is the % of driving energy met by renewable energy. Given as [Fleet1 V2g, Fleet1 Unidirectional, Fleet2 V2G, ...] 
+                                        For V2G this can be -ve, as when the EVs are plugged back in they can be discharged to zero again, thus they will need to be charged to 90% from zero rather than from about 30% as for the Unidirectional. 
+                                        Thus the energy needed from fossil fuels is larger that the driving energy.
+        '''
+        units={}
+        counter = 0
+        for i in range(self.n_assets):
+            units[i] = self.assets[i]
+            counter = counter+1
+        
+        #split the EV fleets into a battery for Smart and a Battery for non smart
+        for k in range(Mult_aggEV.n_assets):
+            for b in range(2):
+                units[counter] = BatteryStorageModel()
+                counter = counter+1
+        
+        Num_units = len(units)
+        
+        if len(c_order) != Num_units:
+            raise Exception('c_order wrong length, need two entries for every agg fleet object')
+        if len(d_order) != Num_units:
+            raise Exception('d_order wrong length, need two entries for every agg fleet object')
+        
+        power_deficit = 0.0 #this is the energy in MWh met by fossil fuels, including for EV driving demand!
+        output = [0]*len(surplus)  #this is the surplus after charging!
+        self.curt = 0.0
+        di_profiles = {}
+        T = int(24/t_res)
+        for i in range(len(c_order)):
+            di_profiles[i] = {'c':[0.0]*len(surplus),'d':[0.0]*len(surplus)}
+
+        # initialise all storage units (EVs updated at each timestep)
+        counter = 0
+        for i in range(self.n_assets):
+            units[i].max_c = (units[i].capacity
+                                    *units[i].max_c_rate*t_res/100)
+            units[i].max_d = (units[i].capacity
+                                    *units[i].max_d_rate*t_res/100)
+            units[i].t_res = t_res
+            
+            #assumed all units start at 50% charge
+            units[i].charge = 0.5*units[i].capacity 
+            counter = counter+1
+        
+        for i in range(Num_units):
+            units[i].start_up_time = 0
+            units[i].n_years = len(surplus)/(365.25*24/t_res)
+            units[i].output = [0]*len(surplus) #this is the left over defecit after the charge action on asset i
+            units[i].t_res = t_res
+            
+    # Begin simulating system #
+        EV_Energy_Underserve = np.zeros([Mult_aggEV.n_assets*2]) # this is the total energy for the EVs that needs to be supplied by fossil fuels
+        Total_Driving_Energy = np.zeros([Mult_aggEV.n_assets*2]) #this is the total desired plugout energy of the EVs
+        charge_hist = np.zeros([Num_units,len(surplus)])
+        V2G = True
+        for t in range(len(surplus)):
+            # self discharge all assets
+            for i in range(Num_units):
+                units[i].self_discharge_timestep()
+        # Update State of the Aggregated EV batteries #
+                if(i >= self.n_assets):
+                    
+                    if(V2G):
+                        k = int((i+1 - self.n_assets)/2)
+                        b=0
+                    else:
+                        b=1
+                                            
+                    #work out the energy remaining after the EVs unplug
+                    if(t==0):
+                        if Mult_aggEV.assets[k].Eout != Mult_aggEV.assets[k].max_SOC:
+                            raise Exception('The max SOC does not equal the plugout SOC. This leads to errors in the causal system operation. Make these the same or improve code.')
+                        N = Mult_aggEV.assets[k].N[t]
+                        units[i].charge = 0.5 * N * Mult_aggEV.assets[k].chargertype[b] * Mult_aggEV.assets[k].number * Mult_aggEV.assets[k].max_SOC/1000
+                    
+                    Energy_Remaining = units[i].charge - Mult_aggEV.assets[k].Nout[t]* Mult_aggEV.assets[k].chargertype[b] * Mult_aggEV.assets[k].number * Mult_aggEV.assets[k].Eout/1000 #work out the energy remaining after the EVs have plugged out
+                    Total_Driving_Energy[k+b] += Mult_aggEV.assets[k].Nout[t]* Mult_aggEV.assets[k].chargertype[b] * Mult_aggEV.assets[k].number * Mult_aggEV.assets[k].Eout/1000 - Mult_aggEV.assets[k].Nin[t]* Mult_aggEV.assets[k].chargertype[b] * Mult_aggEV.assets[k].number * Mult_aggEV.assets[k].Ein/1000
+                    
+                    #if there is sufficient for the driving, update the SOC and continue
+                    if Energy_Remaining > 0:
+                        units[i].charge = Energy_Remaining + Mult_aggEV.assets[k].Nin[t]* Mult_aggEV.assets[k].chargertype[b] * Mult_aggEV.assets[k].number * Mult_aggEV.assets[k].Ein/1000
+                    #if there is not, set the charge to 0 and record the underserve
+                    else:
+                        units[i].charge = Mult_aggEV.assets[k].Nin[t]* Mult_aggEV.assets[k].chargertype[b] * Mult_aggEV.assets[k].number * Mult_aggEV.assets[k].Ein/1000
+                        EV_Energy_Underserve[k+b] += -Energy_Remaining 
+                        power_deficit += -Energy_Remaining
+    
+                    #update the max charge limit
+                    if(V2G):
+                        N = N + Mult_aggEV.assets[k].Nin[t] - Mult_aggEV.assets[k].Nout[t]
+                        V2G = False
+                        discharge_threshold = N * Mult_aggEV.assets[k].chargertype[b] * Mult_aggEV.assets[k].number * V2G_discharge_threshold/1000
+                        
+                        if(units[i].charge <= discharge_threshold):
+                            units[i].max_d = 0.0
+                        else:
+                            units[i].max_d = min(N * Mult_aggEV.assets[k].chargertype[b] * Mult_aggEV.assets[k].number * Mult_aggEV.assets[k].max_d_rate/1000*t_res,units[i].charge - discharge_threshold)
+                    else:
+                        V2G = True
+                        units[i].max_d = 0.0
+
+                    units[i].max_c = N * Mult_aggEV.assets[k].chargertype[b] * Mult_aggEV.assets[k].number * Mult_aggEV.assets[k].max_c_rate*t_res/1000
+                    units[i].capacity = N * Mult_aggEV.assets[k].chargertype[b] * Mult_aggEV.assets[k].number * Mult_aggEV.assets[k].max_SOC/1000
+
+            t_surplus = copy.deepcopy(surplus[t])
+    
+            if t_surplus >= 0:
+                for i in range(Num_units):                  
+                    units[c_order[i]].charge_timestep(t, t_surplus)
+                    output[t] = units[c_order[i]].output[t]
+                    di_profiles[c_order[i]]['c'][t] = output[t]-t_surplus
+                    t_surplus = units[c_order[i]].output[t]
+                    charge_hist[c_order[i],t] = units[c_order[i]].charge
+                self.curt += output[t]
+ 
+            elif t_surplus < 0:
+                for i in range(Num_units):
+                    units[d_order[i]].discharge_timestep(t,t_surplus)
+                    output[t] = units[d_order[i]].output[t]
+                    di_profiles[d_order[i]]['d'][t] = output[t]-t_surplus
+                    t_surplus = units[d_order[i]].output[t]
+                    
+                    charge_hist[d_order[i],t] = units[d_order[i]].charge
+                power_deficit += output[t] #this is the power that needs to be supplied by fossil fuels
+        
+        if(plot_timeseries):
+            timehorizon = len(surplus)
+            plt.rc('font', size=12)
+            
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.plot(range(timehorizon), surplus, color='k', label='Surplus')
+            ax.plot(range(timehorizon), output, color='b', label='Surplus post Charging')
+            ax.set_title('Surplus Timeseries')
+            ax.legend(loc='upper left')
+
+            for i in range(Num_units):
+                fig, ax = plt.subplots(figsize=(10, 6))
+                ax.plot(range(timehorizon), charge_hist[i,:], color='k', label='SOC')
+                ax.plot(range(timehorizon), di_profiles[i]['c'][:], color='r', label='Charge')
+                ax.plot(range(timehorizon), di_profiles[i]['d'][:], color='b', label='Discharge')
+                ax.set_title(str(i))
+                ax.legend(loc='upper left')
+                    
+        EV_Reliability = np.ones([Mult_aggEV.n_assets*2])*100
+        for i in range(Mult_aggEV.n_assets*2): 
+            if Total_Driving_Energy[i] > 0:
+                EV_Reliability[i] = ((Total_Driving_Energy[i]-EV_Energy_Underserve[i])/Total_Driving_Energy[i])*100 #the % of driving energy met with renewables
+        ret = [int(power_deficit),EV_Reliability]
+        
+        return ret
     
     def optimise_storage(self,surplus,fossilLimit):
         

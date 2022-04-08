@@ -1,7 +1,7 @@
 # test scripts
 from generation import (OffshoreWindModel, SolarModel, OnshoreWindModel3600,
                         OnshoreWindModel2000, OnshoreWindModel4200,
-                        OnshoreWindModel5300, OnshoreWindModel5800)
+                        OnshoreWindModel5300, OnshoreWindModel5800, TidalStreamTurbineModel)
 from storage import (BatteryStorageModel, HydrogenStorageModel,
                      ThermalStorageModel)
 #from maps import SolarMap, OnshoreWindMap, OffshoreWindMap, LoadFactorEstimator
@@ -28,7 +28,13 @@ s = SolarModel(year_min=2013, year_max=2014, sites='all',
 
 p = s.power_out # time-series of the output
 
+ts = TidalStreamTurbineModel(year_min=2016, year_max=2016, sites='all',
+               data_path='data/tidal/')
 
+p = ts.power_out[0:168]
+plt.plot(p)
+
+print('Load Factor: ', ts.get_load_factor())
 
 '''
 USE CASE 3: Calculate/optimise  the whole system cost

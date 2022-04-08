@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 
 class AggregatedEVModel:
     def __init__(self, eff_in, eff_out, chargertype, chargercost, 
-                 max_c_rate, max_d_rate, min_SOC, max_SOC, number, initial_number, Ein, Eout, Nin, Nout, name):
+                 max_c_rate, max_d_rate, min_SOC, max_SOC, number, initial_number, Ein, Eout, Nin, Nout, name, limits = []):
         '''
         == description ==
         Describes a fleet of EVs. Their charger costs/type can be specified or optimised. Behavioural plugin patterns are read in via timeseries.
@@ -35,7 +35,7 @@ class AggregatedEVModel:
         Nin: (Array<float>) Normalised timeseries of EV connections (e.g. 0.1 for 1000 chargers says 100 EVs unplug at this timestep), if smaller than timehorizon, array will be scaled up)
         Nout: (Array<float>) Timeseries of EV disconnections (e.g. 0.1 for 1000 chargers says 100 EVs unplug at this timestep), if smaller than timehorizon, array will be scaled up)
         name: (string) Name of the fleet (e.g. Domestic, Work, Commercial) Used for labelling plots
-
+        limits: array<float> Used in Full_optimise to limits the number of charger types built [MinV2G, MaxV2G, MinUnidirectional, MaxUnidirectional]
         == returns ==
         None
         '''
@@ -54,6 +54,7 @@ class AggregatedEVModel:
         self.Nin = Nin
         self.Nout = Nout 
         self.name = name 
+        self.limits = limits
 
         # These will be used to monitor storage usage
         self.V2G_en_in = 0 # total energy into storage (grid side)
@@ -66,6 +67,26 @@ class AggregatedEVModel:
         self.charge = np.empty([]) #timeseries of charge rate (grid side) MW
         self.SOC = np.empty([]) #timeseries of Storage State of Charge (SOC) MWh
 
+
+        timehorizon = 365*24*2
+        if not self.Nin.size % 24 == 0:
+            print('Nin/Nout data for fleet ' + self.name + ' is not exactly divisible by 24hrs, could lead to unnatural periodicities.')
+
+        #increase the length of the in/out plugin series to be two years long
+        repeat_num = timehorizon // self.Nin.size
+        self.Nin = np.tile(self.Nin,repeat_num+1)
+        repeat_num = timehorizon // self.Nout.size
+        self.Nout = np.tile(self.Nout,repeat_num+1)
+        N = np.empty([timehorizon]) #the normalised number of EVs connected at a given time (EV connections/disconnections are assumed to occur at teh start of the timestep)
+        for t in range(timehorizon):
+            if t == 0:
+                N[t] = self.initial_number
+            else:
+                N[t] = N[t-1] + self.Nin[t] - self.Nout[t]
+
+        self.N = N #a timeseries of the number of normalised EVs connected to the chargers
+        if(Eout != max_SOC ):
+            print('Error, Eout must equal max_SOC for the Causal Simulation or the Optimisation Method to work.')
 
     def reset(self):
         '''
