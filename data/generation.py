@@ -942,6 +942,7 @@ class TidalStreamTurbineModelFast(TidalStreamTurbineModel):
                          v_cut_in=1.08, Cp = 0.37, v_cut_out=30, n_turbine=None,
                          turbine_size=2.78,data_path=data_path,
                          save_path=save_path,save=save)
+    
         
 class TidalStreamTurbineModelFastFirm(TidalStreamTurbineModel):
 #suited to the pentland Firth region
@@ -1072,3 +1073,86 @@ class OnshoreWindModel1500(OnshoreWindModel):
                          hub_height=65,data_path=data_path, save_path=save_path,
                          save=save)
 
+class TidalStreamTurbine_VR_1_0(TidalStreamTurbineModel):
+
+    def __init__(self, sites='all', year_min=2013, year_max=2019,
+                 months=list(range(1, 13)),data_path='',
+                 save_path='stored_model_runs/',save=True):
+        
+        super().__init__(sites=sites, year_min=year_min, year_max=year_max,
+                         months=months, 
+                         water_density=1027.0, rotor_diameter=20,
+                         rated_water_speed=1.0,
+                         v_cut_in=0.3, Cp = 0.37, v_cut_out=30, n_turbine=None,
+                         turbine_size=0.060,data_path=data_path,
+                         save_path=save_path,save=save)
+        
+class TidalStreamTurbine_VR_1_5(TidalStreamTurbineModel):
+
+    def __init__(self, sites='all', year_min=2013, year_max=2019,
+                 months=list(range(1, 13)),data_path='',
+                 save_path='stored_model_runs/',save=True):
+        
+        super().__init__(sites=sites, year_min=year_min, year_max=year_max,
+                         months=months, 
+                         water_density=1027.0, rotor_diameter=20,
+                         rated_water_speed=1.5,
+                         v_cut_in=0.45, Cp = 0.37, v_cut_out=30, n_turbine=None,
+                         turbine_size=0.201,data_path=data_path,
+                         save_path=save_path,save=save)
+        
+class TidalStreamTurbine_VR_2_0(TidalStreamTurbineModel):
+
+    def __init__(self, sites='all', year_min=2013, year_max=2019,
+                 months=list(range(1, 13)),data_path='',
+                 save_path='stored_model_runs/',save=True):
+        
+        super().__init__(sites=sites, year_min=year_min, year_max=year_max,
+                         months=months, 
+                         water_density=1027.0, rotor_diameter=20,
+                         rated_water_speed=2.0,
+                         v_cut_in=0.60, Cp = 0.37, v_cut_out=30, n_turbine=None,
+                         turbine_size=0.478,data_path=data_path,
+                         save_path=save_path,save=save)
+        
+class TidalStreamTurbine_VR_2_5(TidalStreamTurbineModel):
+
+    def __init__(self, sites='all', year_min=2013, year_max=2019,
+                 months=list(range(1, 13)),data_path='',
+                 save_path='stored_model_runs/',save=True):
+        
+        super().__init__(sites=sites, year_min=year_min, year_max=year_max,
+                         months=months, 
+                         water_density=1027.0, rotor_diameter=20,
+                         rated_water_speed=2.5,
+                         v_cut_in=0.75, Cp = 0.37, v_cut_out=30, n_turbine=None,
+                         turbine_size=0.933,data_path=data_path,
+                         save_path=save_path,save=save)
+        
+class TidalStreamTurbine_VR_3_0(TidalStreamTurbineModel):
+
+    def __init__(self, sites='all', year_min=2013, year_max=2019,
+                 months=list(range(1, 13)),data_path='',
+                 save_path='stored_model_runs/',save=True):
+        
+        super().__init__(sites=sites, year_min=year_min, year_max=year_max,
+                         months=months, 
+                         water_density=1027.0, rotor_diameter=20,
+                         rated_water_speed=3.0,
+                         v_cut_in=0.9, Cp = 0.37, v_cut_out=30, n_turbine=None,
+                         turbine_size=1.612,data_path=data_path,
+                         save_path=save_path,save=save)
+        
+class TidalStreamTurbine_VR_3_5(TidalStreamTurbineModel):
+
+    def __init__(self, sites='all', year_min=2013, year_max=2019,
+                 months=list(range(1, 13)),data_path='',
+                 save_path='stored_model_runs/',save=True):
+        
+        super().__init__(sites=sites, year_min=year_min, year_max=year_max,
+                         months=months, 
+                         water_density=1027.0, rotor_diameter=20,
+                         rated_water_speed=3.5,
+                         v_cut_in=1.05, Cp = 0.37, v_cut_out=30, n_turbine=None,
+                         turbine_size=2.559,data_path=data_path,
+                         save_path=save_path,save=save)

@@ -68,6 +68,26 @@ class AggregatedEVModel:
         self.SOC = np.empty([]) #timeseries of Storage State of Charge (SOC) MWh
 
 
+        timehorizon = 365*24*2
+        if not self.Nin.size % 24 == 0:
+            print('Nin/Nout data for fleet ' + self.name + ' is not exactly divisible by 24hrs, could lead to unnatural periodicities.')
+
+        #increase the length of the in/out plugin series to be two years long
+        repeat_num = timehorizon // self.Nin.size
+        self.Nin = np.tile(self.Nin,repeat_num+1)
+        repeat_num = timehorizon // self.Nout.size
+        self.Nout = np.tile(self.Nout,repeat_num+1)
+        N = np.empty([timehorizon]) #the normalised number of EVs connected at a given time (EV connections/disconnections are assumed to occur at teh start of the timestep)
+        for t in range(timehorizon):
+            if t == 0:
+                N[t] = self.initial_number
+            else:
+                N[t] = N[t-1] + self.Nin[t] - self.Nout[t]
+
+        self.N = N #a timeseries of the number of normalised EVs connected to the chargers
+        if(Eout != max_SOC ):
+            print('Error, Eout must equal max_SOC for the Causal Simulation or the Optimisation Method to work.')
+
     def reset(self):
         '''
         == description ==
