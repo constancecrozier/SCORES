@@ -36,7 +36,8 @@ class StorageModel:
         capacity: (float) MWh of storage installed
         limits: array[(float)] the [min,max] capacity in MWh
 
-        NOTE: both c and d rate defined FROM THE GRID SIDE
+        NOTE: both max_c and max_d rate defined FROM THE GRID SIDE. I.E. the maximum energy into and out of the 
+        storage will be less and more than these respectively.
 
         == returns ==
         None

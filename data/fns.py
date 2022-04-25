@@ -118,6 +118,7 @@ def get_GB_demand(year_min,year_max,months,electrify_heat=False,evs=False,
         reader = csv.reader(csvfile)
         next(reader)
         for row in reader:
+            #print(row[0][7:],ms[row[0][3:6]],row[0][:2],row[1])
             dt = datetime.datetime(2000+int(row[0][7:]),int(ms[row[0][3:6]]),
                                    int(row[0][:2]),int(row[1]))
             
