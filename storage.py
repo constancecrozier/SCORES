@@ -16,10 +16,12 @@ import optimise_configuration as opt_con
 import pyomo.environ as pyo
 from pyomo.opt import SolverFactory
 import aggregatedEVs as aggEV
+from pandas import DataFrame
+from opt_con_class import (System_LinProg_Model,opt_results_to_df,store_optimisation_results)
 
 class StorageModel:
     def __init__(self, eff_in, eff_out, self_dis, variable_cost, fixed_cost,
-                 max_c_rate, max_d_rate, name, capacity=1, limits = []):
+                 max_c_rate, max_d_rate, name, capacity=1, limits = [0,1000000000]):
         '''
         == description ==
         .
@@ -36,7 +38,8 @@ class StorageModel:
         capacity: (float) MWh of storage installed
         limits: array[(float)] the [min,max] capacity in MWh
 
-        NOTE: both c and d rate defined FROM THE GRID SIDE
+        NOTE: both max_c and max_d rate defined FROM THE GRID SIDE. I.E. the maximum energy into and out of the 
+        storage will be less and more than these respectively.
 
         == returns ==
         None
@@ -137,7 +140,12 @@ class StorageModel:
             # Same as above
             ax.set_xlabel('Time (h)')
             ax.set_ylabel('Power (MW), Energy (MWh)')
-            ax.set_title(self.name+' Charging Timeseries')
+            if(self.capacity < 1000):
+                ax.set_title(self.name+'Timeseries. ('+str(int(self.capacity))+'MWh)')
+            elif(self.capacity < 1000000):
+                ax.set_title(self.name+'Timeseries. ('+str(int(self.capacity/100)/10)+'GWh)')
+            else:
+                ax.set_title(self.name+'Timeseries. ('+str(int(self.capacity/100000)/10)+'TWh)')
             ax.grid(True)
             ax.legend(loc='upper left');
         
@@ -686,8 +694,8 @@ class MultipleStorageAssets:
 
         return [stored, recovered, curtailed]
 
-    def causal_system_operation(self, surplus, c_order, d_order, Mult_aggEV, t_res=1,
-                              start_up_time=0, plot_timeseries = False,V2G_discharge_threshold = 0.0):
+    def causal_system_operation(self, demand, power, c_order, d_order, Mult_aggEV, t_res=1,
+                              start_up_time=0, plot_timeseries = False,V2G_discharge_threshold = 0.0, initial_SOC = 0.5):
         '''
         == description ==
         This function is similiar to charge specified order but with two key differences:
@@ -698,17 +706,30 @@ class MultipleStorageAssets:
                EV reliability which gives the % under delivery of power to the EVs. 
 
         == parameters ==
+        demand: array <floats> this is +ve values, a timeseries of the system passive demand (i.e. that not from EVs) (MW)
+        power: array <float> generation profile of the renewables (MW), must be the same length as the demand
         Mult_aggEV: (MultipleAggregatedEVs) different fleets of EVs with defined chargertype ratios!
-        c_order: list [int] of order of the discharge, where the first entry is for the storage units, later half is for the agg EV fleets.+
-        plot_timeseries: (bool), if true will plot the storage SOCs and charge/discharge, as well as the surplus before and after adjustement
+        c_order: list <int>, of order of the charge with c_order[0] being charged first, c_order[1] charged second etc..., 
+                             the numbering refers to: 0:(n_stor_assets-1) refers to the storage units in order
+                                                     n_stor_assets:(n_stor_assets + 2*n_aggEV_fleets -1) for EV fleets, where the number refer to the virtual batteries representing: V2G_fleet0, smart_fleet0, V2G_fleet1, smart_fleet1...
+        plot_timeseries: (bool), if true will plot the storage SOCs and charge/discharge, as well as the surplus before and after adjustement. The 
         V2G_discharge_threshold: (float), The kWh limit for the EV batteries, below whcih V2G will not discharge. The state of charge can still drop below this due to driving energy, but V2G will not discharge when the SOC is less than this value.
+        initial_SOC: <float>, value between 0:1, determines the start SOC of the EVs and batteries (i.e. 0.5 corresponds to them starting 50% fully charged)
         
         == returns ==
-        [power_deficit,EV_Reliability]: Power deficit is the amount of energy in MWh that needs to be supplied by fossil fuels (including the energy needed for topping up the EVs if they are set to unplug below their plugout SOC)
-                                        EV_Reliability: is the % of driving energy met by renewable energy. Given as [Fleet1 V2g, Fleet1 Unidirectional, Fleet2 V2G, ...] 
-                                        For V2G this can be -ve, as when the EVs are plugged back in they can be discharged to zero again, thus they will need to be charged to 90% from zero rather than from about 30% as for the Unidirectional. 
-                                        Thus the energy needed from fossil fuels is larger that the driving energy.
+        dataframe <Causal Reliability,EV_Reliability>: Causal Reliability is the % total demand (EV demand + passive demand) that is met by renewable energy
+                                                 EV_Reliability: is the % of driving energy met by renewable energy. Given in order [Fleet0 V2g, Fleet0 Unidirectional, Fleet1 V2G, ...] 
+                                                 For V2G this can be -ve, as when the EVs are plugged back in they can be discharged to zero again, thus they will need to be charged to 90% from zero rather than from about 30% as for the Unidirectional. 
+                                                 Thus the energy needed from fossil fuels is larger that the driving energy.
         '''
+        if( np.asarray(power).size != np.asarray(demand).size):
+            raise Exception('power and demand timeseries must be the same length')
+            
+        if(sum(np.asarray(demand) < 0 ) != 0):
+            raise Exception('demand timeseries must contain only +ve values')
+        
+        surplus = np.asarray(power) - np.asarray(demand)
+        surplus = surplus.tolist()
         units={}
         counter = 0
         for i in range(self.n_assets):
@@ -746,7 +767,7 @@ class MultipleStorageAssets:
             units[i].t_res = t_res
             
             #assumed all units start at 50% charge
-            units[i].charge = 0.5*units[i].capacity 
+            units[i].charge = initial_SOC*units[i].capacity 
             counter = counter+1
         
         for i in range(Num_units):
@@ -755,11 +776,15 @@ class MultipleStorageAssets:
             units[i].output = [0]*len(surplus) #this is the left over defecit after the charge action on asset i
             units[i].t_res = t_res
             
+    # Elongate the EV connectivity data if necessesary #
+        Mult_aggEV.construct_connectivity_timeseries(len(surplus))
+    
     # Begin simulating system #
         EV_Energy_Underserve = np.zeros([Mult_aggEV.n_assets*2]) # this is the total energy for the EVs that needs to be supplied by fossil fuels
         Total_Driving_Energy = np.zeros([Mult_aggEV.n_assets*2]) #this is the total desired plugout energy of the EVs
         charge_hist = np.zeros([Num_units,len(surplus)])
         V2G = True
+        
         for t in range(len(surplus)):
             # self discharge all assets
             for i in range(Num_units):
@@ -778,7 +803,7 @@ class MultipleStorageAssets:
                         if Mult_aggEV.assets[k].Eout != Mult_aggEV.assets[k].max_SOC:
                             raise Exception('The max SOC does not equal the plugout SOC. This leads to errors in the causal system operation. Make these the same or improve code.')
                         N = Mult_aggEV.assets[k].N[t]
-                        units[i].charge = 0.5 * N * Mult_aggEV.assets[k].chargertype[b] * Mult_aggEV.assets[k].number * Mult_aggEV.assets[k].max_SOC/1000
+                        units[i].charge = initial_SOC * N * Mult_aggEV.assets[k].chargertype[b] * Mult_aggEV.assets[k].number * Mult_aggEV.assets[k].max_SOC/1000
                     
                     Energy_Remaining = units[i].charge - Mult_aggEV.assets[k].Nout[t]* Mult_aggEV.assets[k].chargertype[b] * Mult_aggEV.assets[k].number * Mult_aggEV.assets[k].Eout/1000 #work out the energy remaining after the EVs have plugged out
                     Total_Driving_Energy[k+b] += Mult_aggEV.assets[k].Nout[t]* Mult_aggEV.assets[k].chargertype[b] * Mult_aggEV.assets[k].number * Mult_aggEV.assets[k].Eout/1000 - Mult_aggEV.assets[k].Nin[t]* Mult_aggEV.assets[k].chargertype[b] * Mult_aggEV.assets[k].number * Mult_aggEV.assets[k].Ein/1000
@@ -854,8 +879,119 @@ class MultipleStorageAssets:
                 EV_Reliability[i] = ((Total_Driving_Energy[i]-EV_Energy_Underserve[i])/Total_Driving_Energy[i])*100 #the % of driving energy met with renewables
         ret = [int(power_deficit),EV_Reliability]
         
-        return ret
+    # Record Outputs #
+        
+        Causal_EV_Reliability = [] #The % of driving Energy Provided by Renewable energy (if no chargers of a certain type this is set to 100%)
+        for x in range(2*Mult_aggEV.n_assets):
+            Causal_EV_Reliability.append([])
+            
+        
+        Causal_Reliability=(1-(-ret[0]/sum(demand)))*100
+        b=0
+        for x in range(2*Mult_aggEV.n_assets):
+            Causal_EV_Reliability[x].append(ret[1][b])
+            b=1-b
+        
+        df = DataFrame({'Causal Reliability': [Causal_Reliability]})
+
+        for x in range(Mult_aggEV.n_assets):
+            df['Fleet '+str(x)+ ' V2G'] = Causal_EV_Reliability[x]
+            df['Fleet '+str(x) + ' Uni'] = Causal_EV_Reliability[x+1]
+             
+        return df
     
+        
+    
+    def non_causal_system_operation(self, demand, power, Mult_aggEV,
+                              plot_timeseries = False, InitialSOC = 0.5, form_model = True):
+        '''
+        == description ==
+        This function non-causally operate the storage and EVs over the given year. To save time on repeated operations, the model can be specified weather it needs to be rebuilt or not.
+
+        == parameters ==
+        demand: array <floats> this is +ve values, a timeseries of the system passive demand (i.e. that not from EVs) (MW)
+        power: array <float> generation profile of the renewables (MW), must be the same length as the demand
+        Mult_aggEV: (MultipleAggregatedEVs) different fleets of EVs with defined chargertype ratios!
+        plot_timeseries: (bool), if true will plot the storage SOCs and charge/discharge, as well as the surplus before and after adjustement. The 
+        initial_SOC: <float>, value between 0:1, determines the start SOC of the EVs and batteries (i.e. 0.5 corresponds to them starting 50% fully charged)
+        form_model: (bool), when true the function will form the entire model, when false it will use the model previously created (this saves time during repeated simulations)
+        
+        == returns ==
+        Non Causal Reliability <float>: Non Causal Reliability is the % total demand (EV demand + passive demand) that is met by renewable energy. Unlike Non Causal Operation, EV reliability is always 100% as these are hard
+                                            constraints within the optimisation. This may come at the cost of decreased total Causal reliability however.
+
+        '''
+
+        #constrain the storage and EVs to have their set value
+        #the storage and EV objects are copied to not overwrite teh orignals if this is being used within Run_then_opt
+        sim_Mult_Stor = self
+        for i in range(sim_Mult_Stor.n_assets):
+            sim_Mult_Stor.assets[i].limits = [sim_Mult_Stor.assets[i].capacity,sim_Mult_Stor.assets[i].capacity]
+            
+        sim_Mult_aggEV = Mult_aggEV
+        for k in range(sim_Mult_aggEV.n_assets):            
+            for b in range(2):
+                sim_Mult_aggEV.assets[k].limits.append(sim_Mult_aggEV.assets[k].chargertype[b]*sim_Mult_aggEV.assets[k].number)
+                sim_Mult_aggEV.assets[k].limits.append(sim_Mult_aggEV.assets[k].chargertype[b]*sim_Mult_aggEV.assets[k].number)
+                
+        #for the non causal operation want to remove constraint on fossil fuel use, but heavily cost it so the optimiser will operate the system at lowest carbon. The built capacities are also fixed!
+        if form_model:
+            x2 = System_LinProg_Model(surplus = np.asarray(power-demand),fossilLimit = 10000.0, Mult_Stor = sim_Mult_Stor, Mult_aggEV = sim_Mult_aggEV)
+            x2.Form_Model(False,fossilfuelpenalty = 1000000.0,StartSOCEqualsEndSOC=False, InitialSOC = InitialSOC)
+            self.non_causal_linprog = x2
+        else:
+            #update with correct gen data    
+            for t in self.non_causal_linprog.model.TimeIndex:
+                self.non_causal_linprog.model.Demand[t] = power[t]-demand[t]
+            
+        
+        self.non_causal_linprog.Run_Sizing()
+        store_optimisation_results(self.non_causal_linprog.model, sim_Mult_aggEV, sim_Mult_Stor)
+        
+        #Plot the Timeseries of EV and Storage Charging if Required
+        if(plot_timeseries):            
+            timehorizon = len(demand)
+            plt.rc('font', size=12)            
+            fig, ax = plt.subplots(figsize=(10, 6))
+            surplus = power-demand
+            ax.plot(range(timehorizon), surplus, color='k', label='Surplus')
+            
+            #work out the surplus post charging
+            surplus_pc = surplus
+            for k in range(sim_Mult_aggEV.n_assets):
+                #subtract the Smart AND V2G Charging amounts
+                surplus_pc += np.asarray(sim_Mult_aggEV.assets[k].discharge) - np.asarray(sim_Mult_aggEV.assets[k].charge[:,0]) - np.asarray(sim_Mult_aggEV.assets[k].charge[:,1])
+                #print('discharge EV',np.asarray(sim_Mult_aggEV.assets[k].discharge))
+               #print('charge EV',np.asarray(sim_Mult_aggEV.assets[k].charge[0:20]))
+                
+            for i in range(sim_Mult_Stor.n_assets):
+                surplus_pc += -np.asarray(sim_Mult_Stor.assets[i].discharge) - np.asarray(sim_Mult_Stor.assets[i].charge)
+                #print('discharge EV',np.asarray(sim_Mult_Stor.assets[k].discharge))
+                #print('charge EV',np.asarray(sim_Mult_Stor.assets[k].charge[0:20]))
+                
+            ax.plot(range(timehorizon), surplus_pc, color='b', label='Surplus post Charging')
+            ax.set_title('Surplus Timeseries')
+            ax.legend(loc='upper left')
+            
+            for i in range(sim_Mult_Stor.n_assets):
+                sim_Mult_Stor.assets[i].plot_timeseries()
+            
+            for k in range(sim_Mult_aggEV.n_assets):
+                sim_Mult_aggEV.assets[k].plot_timeseries(withSOClimits=True)
+        
+    # Record Outputs #
+        
+        #work out driving demand
+        Total_Driving_Energy = np.zeros([Mult_aggEV.n_assets*2]) #Fleet0 V2G, Fleet0 Smart, Fleet1 V2G, Fleet1 Smart...
+        for t in range(len(demand)):
+            for k in range(Mult_aggEV.n_assets):
+                for b in range(2):
+                    Total_Driving_Energy[k+b] += Mult_aggEV.assets[k].Nout[t]* Mult_aggEV.assets[k].chargertype[b] * Mult_aggEV.assets[k].number * Mult_aggEV.assets[k].Eout/1000 - Mult_aggEV.assets[k].Nin[t]* Mult_aggEV.assets[k].chargertype[b] * Mult_aggEV.assets[k].number * Mult_aggEV.assets[k].Ein/1000
+        
+        Non_Causal_Reliability = (1 - sum(pyo.value(self.non_causal_linprog.model.Pfos[:]))/(sum(Total_Driving_Energy) + sum(demand))) * 100       
+        
+        return int(Non_Causal_Reliability*10000)/10000
+        
     def optimise_storage(self,surplus,fossilLimit):
         
         '''

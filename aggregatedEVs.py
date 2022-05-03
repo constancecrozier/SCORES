@@ -13,20 +13,20 @@ import storage as stor
 import matplotlib.pyplot as plt
 
 class AggregatedEVModel:
-    def __init__(self, eff_in, eff_out, chargertype, chargercost, 
-                 max_c_rate, max_d_rate, min_SOC, max_SOC, number, initial_number, Ein, Eout, Nin, Nout, name, limits = []):
+    def __init__(self, eff_in, eff_out, chargercost, 
+                 max_c_rate, max_d_rate, min_SOC, max_SOC, number, initial_number, Ein, Eout, Nin, Nout, name,chargertype = [0.5,0.5], limits = []):
         '''
         == description ==
         Describes a fleet of EVs. Their charger costs/type can be specified or optimised. Behavioural plugin patterns are read in via timeseries.
         All EVs and chargers within the same fleet are homogeneous.
 
         == parameters ==
-        eff_in: (float) charging efficiency in % (0-100)  : if dmax is 10KW, and efficientcy is 50%, then will remove 20KWh from grid when charging at full
+        eff_in: (float) charging efficiency in % (0-100)  : if max_c_rate is 10KW, and eff_in = 50%, then will remove 10KWh from grid to increase SOC by 5KWh.
         eff_out: (float) discharge efficiency in % (0-100)
         chargertype: array<(float)> the optimal ratio of different charger types (0: V2G, 1: Smart Uni, 2: Dumb)
-        Charger_Cost_V2G: array<(float)> Cost of chargers (£ per Charger)/(years of lifetime), array [V2G charger cost, Smart Unidirectional, Dumb Unidirectional]
-        max_c_rate: (float) the maximum charging rate (kW per Charger)
-        max_d_rate: (float) the maximum discharging rate (kW per Charger)
+        chargercost:  array [V2G charger cost, Smart Unidirectional, Dumb Unidirectional]
+        max_c_rate: (float) the maximum charging rate (kW per Charger) from the grid side. (so energy into battery will be less)
+        max_d_rate: (float) the maximum discharging rate (kW per Charger) from the grid side. (So the energy out of battery will be more)
         min/max_SOC: (float) min/max SOC of individual EV in kWh
         number: (float) Number of Chargers needed
         initial_number: (float) Proportion of chargers with EVs attached at the start of the simulation (0-1), (split evenly between charger types)
@@ -35,7 +35,9 @@ class AggregatedEVModel:
         Nin: (Array<float>) Normalised timeseries of EV connections (e.g. 0.1 for 1000 chargers says 100 EVs unplug at this timestep), if smaller than timehorizon, array will be scaled up)
         Nout: (Array<float>) Timeseries of EV disconnections (e.g. 0.1 for 1000 chargers says 100 EVs unplug at this timestep), if smaller than timehorizon, array will be scaled up)
         name: (string) Name of the fleet (e.g. Domestic, Work, Commercial) Used for labelling plots
+        chargercost: array<(float)> Cost of chargers (£ per Charger)/(years of lifetime),
         limits: array<float> Used in Full_optimise to limits the number of charger types built [MinV2G, MaxV2G, MinUnidirectional, MaxUnidirectional]
+        
         == returns ==
         None
         '''
@@ -53,8 +55,12 @@ class AggregatedEVModel:
         self.Eout = Eout
         self.Nin = Nin
         self.Nout = Nout 
-        self.name = name 
-        self.limits = limits
+        self.name = name
+        
+        if(limits == []):
+            self.limits = [0,self.number,0,self.number]
+        else:
+            self.limits = limits
 
         # These will be used to monitor storage usage
         self.V2G_en_in = 0 # total energy into storage (grid side)
@@ -68,23 +74,13 @@ class AggregatedEVModel:
         self.SOC = np.empty([]) #timeseries of Storage State of Charge (SOC) MWh
 
 
-        timehorizon = 365*24*2
-        if not self.Nin.size % 24 == 0:
-            print('Nin/Nout data for fleet ' + self.name + ' is not exactly divisible by 24hrs, could lead to unnatural periodicities.')
-
-        #increase the length of the in/out plugin series to be two years long
-        repeat_num = timehorizon // self.Nin.size
-        self.Nin = np.tile(self.Nin,repeat_num+1)
-        repeat_num = timehorizon // self.Nout.size
-        self.Nout = np.tile(self.Nout,repeat_num+1)
-        N = np.empty([timehorizon]) #the normalised number of EVs connected at a given time (EV connections/disconnections are assumed to occur at teh start of the timestep)
-        for t in range(timehorizon):
-            if t == 0:
-                N[t] = self.initial_number
-            else:
-                N[t] = N[t-1] + self.Nin[t] - self.Nout[t]
-
-        self.N = N #a timeseries of the number of normalised EVs connected to the chargers
+        # timehorizon = 365*24*2
+        if not self.Nin.size == 24 or not self.Nout.size == 24:
+            print('Nin/Nout data for fleet ' + self.name + ' is not 24hrs long. Model not yet built to deal with longer timeseries.')
+            return
+        
+        self.N = [] #this is the proportion of total EVs connected at a given hour, filled in at build model.
+        
         if(Eout != max_SOC ):
             print('Error, Eout must equal max_SOC for the Causal Simulation or the Optimisation Method to work.')
 
@@ -106,34 +102,21 @@ class AggregatedEVModel:
         self.charge = np.empty([]) 
         self.SOC = np.empty([])
 
-    def set_number(self, number):
-        
-        '''
-        == description ==
-        Sets the installed  number of chargers to the specified value.
-
-        == parameters ==
-        number: (float) Number of chargers installed
-
-        == returns ==
-        None
-        '''
-        self.number = number
-        self.reset()
  
-    def plot_timeseries(self,start=0,end=-1):
+    def plot_timeseries(self,start=0,end=-1,withSOClimits=False):
             
         '''   
         == parameters ==
         start: (int) start time of plot
         end: (int) end time of plot
+        withSOClimits: (bool) when true will plot the SOC limits imposed on the aggregate battery caused by EV driving patterns
         '''
         
         if(self.discharge.shape == ()):
             print('Charging timeseries not avaialable, try running MultipleAggregatedEVs.optimise_charger_type().')
         else:
             if(end<=0):
-                timehorizon = self.charge.size
+                timehorizon = self.discharge.size
             else:
                 timehorizon = end
             
@@ -144,9 +127,16 @@ class AggregatedEVModel:
                 ax.plot(range(start,timehorizon), self.charge[start:timehorizon,b], color='tab:blue', label='Charge')
                 if(b==0):
                     ax.plot(range(start,timehorizon), -self.discharge[start:timehorizon], color='tab:orange', label='Discharge')
-                    ax.set_title(self.name+' V2G Charging Timeseries')
+                    ax.set_title(self.name+' V2G ('+str(int(self.number*self.chargertype[b]))+' chargers)')
                 elif(b==1):
-                    ax.set_title(self.name+' Smart Charging Timeseries')
+                    ax.set_title(self.name+' Smart ('+str(int(self.number*self.chargertype[b]))+' chargers)')
+                    
+                if(withSOClimits): #because SOC DV is the SOC at the END of the timestep, move these limits forwards by one!
+                    if(start==0):
+                        start=1
+                        ax.plot(range(1,timehorizon), self.N[start-1:timehorizon-1]*self.max_SOC/1000 * self.chargertype[b] * self.number, 'c--', label='Max SOC Limit')
+                    else:
+                        ax.plot(range(start,timehorizon), self.N[start-1:timehorizon-1]*self.max_SOC/1000 * self.chargertype[b] * self.number, 'c--', label='Max SOC Limit')
     
                 # Same as above
                 ax.set_xlabel('Time (h)')
@@ -162,7 +152,7 @@ class MultipleAggregatedEVs:
         Initialisation of a multiple fleets object. 
 
         == parameters ==
-        assets: (Array<AggregatedEVModel>) a list of storage model objects
+        assets: (Array<AggregatedEVModel>) a list of aggregated EV model objects
 
 
         == returns ==
@@ -204,32 +194,67 @@ class MultipleAggregatedEVs:
             
         opt_con.optimise_configuration(surplus,fossilLimit,MultStor,self)
         
-    def plot_timeseries(self,start=0,end=-1):
         
-        '''   
-        == parameters ==
-        start: (int) start time of plot
-        end: (int) end time of plot
+    def construct_connectivity_timeseries (self,timehorizon):
         
         '''
-
-        if (self.Pfos.shape == ()):
-            print('Charging timeseries not avaialable, try running MultipleAggregatedEVs.optimise_charger_type().')
-        else:
-            if(end<=0):
-                timehorizon = self.Pfos.size
-            else:
-                timehorizon = end
-            plt.rc('font', size=12)
-            fig, ax = plt.subplots(figsize=(10, 6))
-            ax.plot(range(start,timehorizon), self.Pfos[start:timehorizon], color='tab:red', label='FF Power')
-            ax.plot(range(start,timehorizon), self.Shed[start:timehorizon], color='tab:blue', label='Renewable Shed')
-            ax.plot(range(start,timehorizon), self.surplus[start:timehorizon], color='tab:orange', label='Surplus')
+        == description ==
+        The EV connectivity is specified as 24hr profiles of normalised connection, this function constructs a timeseries of these of length timehorizon
+        for use in causal operation or optimisation.
     
-            # Same as above
-            ax.set_xlabel('Time (h)')
-            ax.set_ylabel('Power (MW), Energy (MWh)')
-            ax.set_title(' Power Timeseries')
-            ax.grid(True)
-            ax.legend(loc='upper left');   
+        == parameters ==
+        timehorizon: (int) the number of hours of constructed timeseries
+    
+        == returns ==
+        '''
+        
+        for i in range(0,self.n_assets):            
+            # Check that the input timeseries are divisible by 24
+            if not self.assets[i].Nin.size % 24 == 0:
+                print('Nin/Nout data for fleet ' + self.Mult_aggEV.assets[i].name + ' is not exactly divisible by 24hrs, could lead to unnatural periodicities.')
+
+            #increase the length of the in/out plugin series to be longer than the simulation
+            repeat_num = timehorizon // self.assets[i].Nin.size
+            self.assets[i].Nin = np.tile(self.assets[i].Nin,repeat_num+1)
+            repeat_num = timehorizon // self.assets[i].Nout.size
+            self.assets[i].Nout = np.tile(self.assets[i].Nout,repeat_num+1)
+            
+        N = np.empty([self.n_assets,timehorizon]) #the normalised number of EVs connected at a given time (EV connections/disconnections are assumed to occur at teh start of the timestep)
+        for k in range(self.n_assets):
+            for t in range(timehorizon):
+                if t == 0:
+                    N[k,t] = self.assets[k].initial_number
+                else:
+                    N[k,t] = N[k,t-1] + self.assets[k].Nin[t] - self.assets[k].Nout[t]
+                               
+            self.assets[k].N = N[k,:]
+        
+    # def plot_timeseries(self,start=0,end=-1):
+        
+    #     '''   
+    #     == parameters ==
+    #     start: (int) start time of plot
+    #     end: (int) end time of plot
+        
+    #     '''
+
+    #     if (self.Pfos.shape == ()):
+    #         print('Charging timeseries not avaialable, try running MultipleAggregatedEVs.optimise_charger_type().')
+    #     else:
+    #         if(end<=0):
+    #             timehorizon = self.Pfos.size
+    #         else:
+    #             timehorizon = end
+    #         plt.rc('font', size=12)
+    #         fig, ax = plt.subplots(figsize=(10, 6))
+    #         ax.plot(range(start,timehorizon), self.Pfos[start:timehorizon], color='tab:red', label='FF Power')
+    #         ax.plot(range(start,timehorizon), self.Shed[start:timehorizon], color='tab:blue', label='Renewable Shed')
+    #         ax.plot(range(start,timehorizon), self.surplus[start:timehorizon], color='tab:orange', label='Surplus')
+    
+    #         # Same as above
+    #         ax.set_xlabel('Time (h)')
+    #         ax.set_ylabel('Power (MW), Energy (MWh)')
+    #         ax.set_title(' Power Timeseries')
+    #         ax.grid(True)
+    #         ax.legend(loc='upper left');   
     

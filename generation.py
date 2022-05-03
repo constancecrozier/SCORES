@@ -14,7 +14,7 @@ from fns import lambda_i, c_p, get_filename
 class GenerationModel:
     # Base class for a generation model
     def __init__(self, sites, year_min, year_max, months, fixed_cost,
-                 variable_cost, name, data_path, save_path,limits=[]):
+                 variable_cost, name, data_path, save_path,limits=[0,1000000]):
         '''
         == description ==
         This function initialises the class, builds empty arrays to store the
