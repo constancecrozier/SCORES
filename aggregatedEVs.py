@@ -11,10 +11,11 @@ import datetime
 import optimise_configuration as opt_con
 import storage as stor
 import matplotlib.pyplot as plt
+import datetime as dt
 
 class AggregatedEVModel:
     def __init__(self, eff_in, eff_out, chargercost, 
-                 max_c_rate, max_d_rate, min_SOC, max_SOC, number, initial_number, Ein, Eout, Nin, Nout, name,chargertype = [0.5,0.5], limits = []):
+                 max_c_rate, max_d_rate, min_SOC, max_SOC, number, initial_number, Ein, Eout, Nin, Nout, Nin_weekend, Nout_weekend, name,chargertype = [0.5,0.5], limits = []):
         '''
         == description ==
         Describes a fleet of EVs. Their charger costs/type can be specified or optimised. Behavioural plugin patterns are read in via timeseries.
@@ -32,8 +33,10 @@ class AggregatedEVModel:
         initial_number: (float) Proportion of chargers with EVs attached at the start of the simulation (0-1), (split evenly between charger types)
         Ein: (float) Energy stored in when plugged in EV (kWh)
         Eout: (float) Minimum Energy in EV when disconnected (kWh)
-        Nin: (Array<float>) Normalised timeseries of EV connections (e.g. 0.1 for 1000 chargers says 100 EVs unplug at this timestep), if smaller than timehorizon, array will be scaled up)
-        Nout: (Array<float>) Timeseries of EV disconnections (e.g. 0.1 for 1000 chargers says 100 EVs unplug at this timestep), if smaller than timehorizon, array will be scaled up)
+        Nin: (Array<float>) Normalised timeseries of EV connections (e.g. 0.1 for 1000 chargers says 100 EVs unplug at this timestep), 24hrs long for a weekday
+        Nout: (Array<float>) Timeseries of EV disconnections (e.g. 0.1 for 1000 chargers says 100 EVs unplug at this timestep), 24hrs long for a weekday
+        Nin_weekend: (Array<float>) Normalised timeseries of EV connections (e.g. 0.1 for 1000 chargers says 100 EVs unplug at this timestep), 24hrs long for a weekend
+        Nout_weekend: (Array<float>) Timeseries of EV disconnections (e.g. 0.1 for 1000 chargers says 100 EVs unplug at this timestep), 24hrs long for a weekend
         name: (string) Name of the fleet (e.g. Domestic, Work, Commercial) Used for labelling plots
         chargercost: array<(float)> Cost of chargers (£ per Charger)/(years of lifetime),
         limits: array<float> Used in Full_optimise to limits the number of charger types built [MinV2G, MaxV2G, MinUnidirectional, MaxUnidirectional]
@@ -54,6 +57,8 @@ class AggregatedEVModel:
         self.Ein = Ein
         self.Eout = Eout
         self.Nin = Nin
+        self.Nout_weekend = Nout_weekend
+        self.Nin_weekend = Nin_weekend
         self.Nout = Nout 
         self.name = name
         
@@ -79,7 +84,9 @@ class AggregatedEVModel:
             print('Nin/Nout data for fleet ' + self.name + ' is not 24hrs long. Model not yet built to deal with longer timeseries.')
             return
         
-        self.N = [] #this is the proportion of total EVs connected at a given hour, filled in at build model.
+        self.N = [] #this is the proportion of total EVs connected at a given hour, filled in with construct connectivity timeseries method.
+        self.Nin_full = []
+        self.Nout_full = []
         
         if(Eout != max_SOC ):
             print('Error, Eout must equal max_SOC for the Causal Simulation or the Optimisation Method to work.')
@@ -195,7 +202,7 @@ class MultipleAggregatedEVs:
         opt_con.optimise_configuration(surplus,fossilLimit,MultStor,self)
         
         
-    def construct_connectivity_timeseries (self,timehorizon):
+    def construct_connectivity_timeseries (self,start,end,includeleapdays=True):
         
         '''
         == description ==
@@ -203,58 +210,75 @@ class MultipleAggregatedEVs:
         for use in causal operation or optimisation.
     
         == parameters ==
-        timehorizon: (int) the number of hours of constructed timeseries
-    
+        start: <datetime> start time (inclusive)
+        end: <datetime> end time (will run to the hour before this, so if want to do entire year make this 1st Jan Year 00:00)
+        includeleapdays: <bool> when false, the timeseries will be constructed as normal and then the leap days will be removed, this keeps it inline with the demand and generation profiles used in Size_Then_Op_Function
+        
         == returns ==
         '''
+        duration = end-start
+        timehorizon = duration.total_seconds()
+        timehorizon = int(divmod(timehorizon, 3600*24)[0])
         
-        for i in range(0,self.n_assets):            
-            # Check that the input timeseries are divisible by 24
-            if not self.assets[i].Nin.size % 24 == 0:
-                print('Nin/Nout data for fleet ' + self.Mult_aggEV.assets[i].name + ' is not exactly divisible by 24hrs, could lead to unnatural periodicities.')
-
-            #increase the length of the in/out plugin series to be longer than the simulation
-            repeat_num = timehorizon // self.assets[i].Nin.size
-            self.assets[i].Nin = np.tile(self.assets[i].Nin,repeat_num+1)
-            repeat_num = timehorizon // self.assets[i].Nout.size
-            self.assets[i].Nout = np.tile(self.assets[i].Nout,repeat_num+1)
+        #construct datetimeseries
+        x = dt.timedelta(days = 1)
+        N1 = start
             
-        N = np.empty([self.n_assets,timehorizon]) #the normalised number of EVs connected at a given time (EV connections/disconnections are assumed to occur at teh start of the timestep)
-        for k in range(self.n_assets):
+        date_range = []
+        for t in range(timehorizon):
+            date_range.append(N1)
+            N1 = N1+x
+        
+        #remove leap days if using for sizing then op
+        if not includeleapdays:
             for t in range(timehorizon):
-                if t == 0:
-                    N[k,t] = self.assets[k].initial_number
-                else:
-                    N[k,t] = N[k,t-1] + self.assets[k].Nin[t] - self.assets[k].Nout[t]
-                               
-            self.assets[k].N = N[k,:]
+                if date_range[t].month == 2 and date_range[t].day == 29:
+                    date_range.pop(t)
+         
+        N = np.empty([self.n_assets,timehorizon*24])
+        Nin = np.empty([self.n_assets,timehorizon*24])
+        Nout = np.empty([self.n_assets,timehorizon*24])         
+        for k in range(self.n_assets):
+            #now load in either weekday of weekend connectivity data
+            for t in range(timehorizon):            
+                if date_range[t].weekday() <= 4:
+                    Nin[k,t*24:(t+1)*24] = self.assets[k].Nin
+                    Nout[k,t*24:(t+1)*24] = self.assets[k].Nout
         
-    # def plot_timeseries(self,start=0,end=-1):
+                    N[k,t*24:(t+1)*24] = np.asarray(self.assets[k].Nin) - np.asarray(self.assets[k].Nout)
+                elif date_range[t].weekday() > 4:
+                    Nin[k,t*24:(t+1)*24] = self.assets[k].Nin_weekend
+                    Nout[k,t*24:(t+1)*24] = self.assets[k].Nout_weekend
         
-    #     '''   
-    #     == parameters ==
-    #     start: (int) start time of plot
-    #     end: (int) end time of plot
+                    N[k,t*24:(t+1)*24] = np.asarray(self.assets[k].Nin_weekend) - np.asarray(self.assets[k].Nout_weekend)
+            
+            self.assets[k].N = N[k,:] + self.assets[k].initial_number
+            self.assets[k].Nin = Nin[k,:]      
+            self.assets[k].Nout = Nout[k,:]
         
-    #     '''
+        
+        
+                
+        # for i in range(0,self.n_assets):            
+        #     # Check that the input timeseries are divisible by 24
+        #     if not self.assets[i].Nin.size % 24 == 0:
+        #         print('Nin/Nout data for fleet ' + self.Mult_aggEV.assets[i].name + ' is not exactly divisible by 24hrs, could lead to unnatural periodicities.')
 
-    #     if (self.Pfos.shape == ()):
-    #         print('Charging timeseries not avaialable, try running MultipleAggregatedEVs.optimise_charger_type().')
-    #     else:
-    #         if(end<=0):
-    #             timehorizon = self.Pfos.size
-    #         else:
-    #             timehorizon = end
-    #         plt.rc('font', size=12)
-    #         fig, ax = plt.subplots(figsize=(10, 6))
-    #         ax.plot(range(start,timehorizon), self.Pfos[start:timehorizon], color='tab:red', label='FF Power')
-    #         ax.plot(range(start,timehorizon), self.Shed[start:timehorizon], color='tab:blue', label='Renewable Shed')
-    #         ax.plot(range(start,timehorizon), self.surplus[start:timehorizon], color='tab:orange', label='Surplus')
-    
-    #         # Same as above
-    #         ax.set_xlabel('Time (h)')
-    #         ax.set_ylabel('Power (MW), Energy (MWh)')
-    #         ax.set_title(' Power Timeseries')
-    #         ax.grid(True)
-    #         ax.legend(loc='upper left');   
+        #     #increase the length of the in/out plugin series to be longer than the simulation
+        #     repeat_num = timehorizon // self.assets[i].Nin.size
+        #     self.assets[i].Nin = np.tile(self.assets[i].Nin,repeat_num+1)
+        #     repeat_num = timehorizon // self.assets[i].Nout.size
+        #     self.assets[i].Nout = np.tile(self.assets[i].Nout,repeat_num+1)
+            
+        # N = np.empty([self.n_assets,timehorizon]) #the normalised number of EVs connected at a given time (EV connections/disconnections are assumed to occur at teh start of the timestep)
+        # for k in range(self.n_assets):
+        #     for t in range(timehorizon):
+        #         if t == 0:
+        #             N[k,t] = self.assets[k].initial_number
+        #         else:
+        #             N[k,t] = N[k,t-1] + self.assets[k].Nin[t] - self.assets[k].Nout[t]
+                               
+        #     self.assets[k].N = N[k,:]
+        
+
     
