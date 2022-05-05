@@ -217,6 +217,7 @@ class MultipleAggregatedEVs:
         == returns ==
         '''
         duration = end-start
+
         timehorizon = duration.total_seconds()
         timehorizon = int(divmod(timehorizon, 3600*24)[0])
         
@@ -231,28 +232,36 @@ class MultipleAggregatedEVs:
         
         #remove leap days if using for sizing then op
         if not includeleapdays:
-            for t in range(timehorizon):
+            #coun down from top to bottom so that leap years can be removed
+            for t in range(timehorizon-1,-1,-1):
                 if date_range[t].month == 2 and date_range[t].day == 29:
                     date_range.pop(t)
+                    timehorizon = timehorizon-1
          
         N = np.empty([self.n_assets,timehorizon*24])
         Nin = np.empty([self.n_assets,timehorizon*24])
         Nout = np.empty([self.n_assets,timehorizon*24])         
         for k in range(self.n_assets):
             #now load in either weekday of weekend connectivity data
-            for t in range(timehorizon):            
+            #rembember, this is over days not weeks!
+            for t in range(timehorizon):                 
                 if date_range[t].weekday() <= 4:
-                    Nin[k,t*24:(t+1)*24] = self.assets[k].Nin
-                    Nout[k,t*24:(t+1)*24] = self.assets[k].Nout
-        
-                    N[k,t*24:(t+1)*24] = np.asarray(self.assets[k].Nin) - np.asarray(self.assets[k].Nout)
+                    for h in range(24):
+                        Nin[k,t*24+h] = self.assets[k].Nin[h]
+                        Nout[k,t*24+h] = self.assets[k].Nout[h]
+                        if(t == 0 and h ==0):
+                            N[k,t*24+h] = self.assets[k].initial_number
+                        else:
+                            N[k,t*24+h] = N[k,t*24+h-1] + self.assets[k].Nin[h] - self.assets[k].Nout[h]
                 elif date_range[t].weekday() > 4:
-                    Nin[k,t*24:(t+1)*24] = self.assets[k].Nin_weekend
-                    Nout[k,t*24:(t+1)*24] = self.assets[k].Nout_weekend
-        
-                    N[k,t*24:(t+1)*24] = np.asarray(self.assets[k].Nin_weekend) - np.asarray(self.assets[k].Nout_weekend)
-            
-            self.assets[k].N = N[k,:] + self.assets[k].initial_number
+                    for h in range(24):
+                        Nin[k,t*24+h] = self.assets[k].Nin_weekend[h]
+                        Nout[k,t*24+h] = self.assets[k].Nout_weekend[h]
+                        if(t == 0 and h ==0):
+                            N[k,t*24+h] = self.assets[k].initial_number
+                        else:
+                            N[k,t*24+h] = N[k,t*24+h-1] + self.assets[k].Nin_weekend[h] - self.assets[k].Nout_weekend[h]            
+            self.assets[k].N = N[k,:] 
             self.assets[k].Nin = Nin[k,:]      
             self.assets[k].Nout = Nout[k,:]
         

@@ -15,8 +15,8 @@ from datetime import datetime
 '''
 Initialise generators
 '''
-ymin = 2014
-ymax = 2015
+ymin = 2016
+ymax = 2016
 
 
 osw_master = OffshoreWindModel(year_min=ymin, year_max=ymax, sites=[119,174,178,209,364],
@@ -70,21 +70,24 @@ For Operation
 '''
 multStor = MultipleStorageAssets(storage)
 
-power = np.asarray(osw_master.power_out[0:500])
-power = power/power.max() * 200
+# power = np.asarray(osw_master.power_out[0:500])
+# power = power/power.max() * 20
 
-demand = np.asarray(es.demand[0:500])/1000
-surplus = power-demand
+# demand = np.asarray(es.demand[0:500])/1000
+# surplus = power-demand
 
-#demand = np.zeros([500])
-#power = np.zeros([500])
+# #demand = np.zeros([500])
+# #power = np.zeros([500])
+
+# demand = es.demand
+# power = np.asarray(osw_master.power_out)
 
 # # #### Non Causal ####
-x2 = multStor.non_causal_system_operation(demand,power,MultsFleets,plot_timeseries = True,InitialSOC=[0,1,1,1])
-print(x2)
+# x2 = multStor.non_causal_system_operation(demand,power,MultsFleets,start = datetime(ymin,1,1,0), end =datetime(ymax+1,1,1,0), plot_timeseries = True,InitialSOC=[0,1,1,1])
+# print(x2)
 
-#### Causal ####
-# x1 = multStor.causal_system_operation(demand,power,[2,3,0,1],[0,1,3,2],MultsFleets, start = datetime(ymin,1,1,0),end =datetime(ymax,1,1,0),plot_timeseries = True,V2G_discharge_threshold = 20.0,initial_SOC=[0,1,0.0,0.0])
+# ### Causal ####
+# x1 = multStor.causal_system_operation(demand,power,[2,3,0,1],[0,1,3,2],MultsFleets, start = datetime(ymin,1,1,0),end =datetime(ymax+1,1,1,0),plot_timeseries = True,V2G_discharge_threshold = 20.0,initial_SOC=[0,1,1.0,1.0])
 # print(x1['Causal Reliability'][0])
 
 
@@ -97,7 +100,7 @@ Run Sizing Then Op
 '''
                                                            
 # x = System_LinProg_Model(surplus = -np.asarray(es.demand),fossilLimit = 0.01,Mult_Stor = MultipleStorageAssets(storage),Mult_aggEV = MultsFleets, gen_list = generators,YearRange = [ymin,ymax])
-# x.Form_Model(True)
+# x.Form_Model(start_EV = datetime(ymin,1,1,0), end_EV =datetime(ymax+1,1,1,0),SizingThenOperation=True)
 # df1 = x.Run_Sizing_Then_Op(range(ymin,ymax+1),V2G_discharge_threshold = 26.0, c_order=[2,3,0,1],d_order=[0,3,1,2])
 # df1.to_csv('log/Reliability1.csv', index=False)
 # x.df_capital.to_csv('log/Capital1.csv', index=False)
@@ -107,10 +110,12 @@ Run Sizing Then Op
 '''
 Simple Optimisation
 '''
-# x = System_LinProg_Model(surplus = -np.asarray(es.demand),fossilLimit = 0.01,Mult_Stor = MultipleStorageAssets(storage),Mult_aggEV = MultsFleets, gen_list = generators,YearRange = [ymin,ymax])
-# x.Form_Model(False)
-# x.Run_Sizing()
-# x.df_capital.to_csv('log/Capital.csv', index=False)
+x = System_LinProg_Model(surplus = -np.asarray(es.demand),fossilLimit = 0.01,Mult_Stor = MultipleStorageAssets(storage),Mult_aggEV = MultsFleets, gen_list = generators,YearRange = [ymin,ymax])
+x.Form_Model(start_EV = datetime(ymin,1,1,0), end_EV = datetime(ymax+1,1,1,0),InitialSOC = [1.0])
+
+x.Run_Sizing()
+x.df_capital.to_csv('log/Capital.csv', index=False)
+Dom1.plot_timeseries(1392,1750,True)
 
 
 '''

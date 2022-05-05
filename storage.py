@@ -694,7 +694,7 @@ class MultipleStorageAssets:
 
         return [stored, recovered, curtailed]
 
-    def causal_system_operation(self, demand, power, c_order, d_order, Mult_aggEV,start, end, 
+    def causal_system_operation(self, demand, power, c_order, d_order, Mult_aggEV,start, end, IncludeEVLeapDay = True,
                                 t_res=1, start_up_time=24, plot_timeseries = False,V2G_discharge_threshold = 0.0, initial_SOC = [0.5]):
         '''
         == description ==
@@ -785,7 +785,7 @@ class MultipleStorageAssets:
             units[i].t_res = t_res
             
     # Elongate the EV connectivity data if necessesary #
-        Mult_aggEV.construct_connectivity_timeseries(start,end)
+        Mult_aggEV.construct_connectivity_timeseries(start,end,IncludeEVLeapDay)
     
     # Begin simulating system #
         EV_Energy_Underserve = np.zeros([Mult_aggEV.n_assets*2]) # this is the total energy for the EVs that needs to be supplied by fossil fuels
@@ -885,6 +885,9 @@ class MultipleStorageAssets:
                 ax.plot(range(timehorizon), charge_hist[i,:], color='k', label='SOC')
                 ax.plot(range(timehorizon), di_profiles[i]['c'][:], color='r', label='Charge')
                 ax.plot(range(timehorizon), di_profiles[i]['d'][:], color='b', label='Discharge')
+                # ax.plot(range(1392,1750), charge_hist[i,1392:1750], color='k', label='SOC')
+                # ax.plot(range(1392,1750), di_profiles[i]['c'][1392:1750], color='r', label='Charge')
+                # ax.plot(range(1392,1750), di_profiles[i]['d'][1392:1750], color='b', label='Discharge')
                 ax.set_title(str(i))
                 ax.legend(loc='upper left')
                     
@@ -918,7 +921,7 @@ class MultipleStorageAssets:
     
         
     
-    def non_causal_system_operation(self, demand, power, Mult_aggEV,start_up_time=24,
+    def non_causal_system_operation(self, demand, power, Mult_aggEV,start,end,start_up_time=24, includeleapdaysEVs = True,
                               plot_timeseries = False, InitialSOC = [0.5], form_model = True):
         '''
         == description ==
@@ -956,7 +959,7 @@ class MultipleStorageAssets:
         #for the non causal operation want to remove constraint on fossil fuel use, but heavily cost it so the optimiser will operate the system at lowest carbon. The built capacities are also fixed!
         if form_model:
             x2 = System_LinProg_Model(surplus = np.asarray(power-demand),fossilLimit = 10000.0, Mult_Stor = sim_Mult_Stor, Mult_aggEV = sim_Mult_aggEV)
-            x2.Form_Model(False,fossilfuelpenalty = 10000000.0,StartSOCEqualsEndSOC=False, InitialSOC = InitialSOC)
+            x2.Form_Model(start_EV = start,end_EV = end,SizingThenOperation = False,includeleapdays = includeleapdaysEVs, fossilfuelpenalty = 10000000.0,StartSOCEqualsEndSOC=False, InitialSOC = InitialSOC)
             self.non_causal_linprog = x2
         else:
             #update with correct gen data    
@@ -996,7 +999,7 @@ class MultipleStorageAssets:
                 sim_Mult_Stor.assets[i].plot_timeseries()
             
             for k in range(sim_Mult_aggEV.n_assets):
-                sim_Mult_aggEV.assets[k].plot_timeseries(withSOClimits=True)
+                sim_Mult_aggEV.assets[k].plot_timeseries(1392,1750,withSOClimits=True)
         
     # Record Outputs #
         
