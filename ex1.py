@@ -15,8 +15,8 @@ from datetime import datetime
 '''
 Initialise generators
 '''
-ymin = 2016
-ymax = 2016
+ymin = 2018
+ymax = 2018
 
 
 osw_master = OffshoreWindModel(year_min=ymin, year_max=ymax, sites=[119,174,178,209,364],
@@ -55,7 +55,8 @@ storage = [B,H]
 
 #EVs
 Dom1 = aggEV.AggregatedEVModel(eff_in=95, eff_out=95, chargertype=[0.5,0.5], chargercost=np.array([2000/20,800/20,50/20]), max_c_rate=10, max_d_rate=10, min_SOC=0, max_SOC=36, number=200000,initial_number = 0.9, Ein = 20, Eout = 36, Nin = np.array([0,0,0,0,0,0,0,0,0,0.1,0,0,0,0,0,0.1,0.2,0.1,0.1,0,0,0,0,0]),Nout = np.array([0,0,0,0,0,0,0,0.3,0.2,0,0,0,0,0,0,0.1,0,0,0,0,0,0,0,0]),Nin_weekend = np.array([0,0,0,0,0,0,0,0.0,0.0,0,0,0,0,0,0,0.0,0,0,0,0,0,0,0,0]),Nout_weekend = np.array([0,0,0,0,0,0,0,0.0,0.0,0,0,0,0,0,0,0.0,0,0,0,0,0,0,0,0]),name = 'Domestic1')
-MultsFleets = aggEV.MultipleAggregatedEVs([Dom1])
+Dom_HeavyUse = aggEV.AggregatedEVModel(eff_in=95, eff_out=95, chargertype=[0.5,0.5], chargercost=np.array([16000/20,800/20,50/20]), max_c_rate=10, max_d_rate=10, min_SOC=0, max_SOC=36, number=2000000,initial_number = 0.9, Ein = 15, Eout = 36, Nin = np.array([0,0,0,0,0,0,0,0,0,0.1,0,0,0,0,0,0.1,0.2,0.3,0.1,0,0,0,0,0]),Nout = np.array([0,0,0,0,0,0,0.2,0.3,0.2,0,0,0,0,0,0,0.1,0,0,0,0,0,0,0,0]),Nin_weekend = np.array([0,0,0,0,0,0,0,0.0,0.0,0,0,0,0,0,0,0.0,0,0,0,0,0,0,0,0]),Nout_weekend = np.array([0,0,0,0,0,0,0,0.0,0.0,0,0,0,0,0,0,0.0,0,0,0,0,0,0,0,0]),name = 'Domestic_Heavy')
+MultsFleets = aggEV.MultipleAggregatedEVs([Dom1,Dom_HeavyUse])
 
 
 # Initialise electricity sytem with existing GB demand
@@ -110,12 +111,21 @@ Run Sizing Then Op
 '''
 Simple Optimisation
 '''
-x = System_LinProg_Model(surplus = -np.asarray(es.demand),fossilLimit = 0.01,Mult_Stor = MultipleStorageAssets(storage),Mult_aggEV = MultsFleets, gen_list = generators,YearRange = [ymin,ymax])
-x.Form_Model(start_EV = datetime(ymin,1,1,0), end_EV = datetime(ymax+1,1,1,0),InitialSOC = [1.0])
+x = System_LinProg_Model(surplus = -np.asarray(es.demand),fossilLimit = 0.01,Mult_Stor = MultipleStorageAssets(storage),Mult_aggEV = aggEV.MultipleAggregatedEVs([]), gen_list = generators,YearRange = [ymin,ymax])
+x.Form_Model(start_EV = datetime(ymin,1,1,0), end_EV = datetime(ymax+1,1,1,0))
 
 x.Run_Sizing()
+x.PlotSurplus()
+B.plot_timeseries()
+H.plot_timeseries()
+# Dom1.plot_timeseries()
+# Dom_HeavyUse.plot_timeseries()
 x.df_capital.to_csv('log/Capital.csv', index=False)
-Dom1.plot_timeseries(1392,1750,True)
+x.df_costs.to_csv('log/costs.csv', index=False)
+
+
+# Dom1.plot_timeseries(0,200,True)
+# Dom_HeavyUse.plot_timeseries(0,200,True)
 
 
 '''

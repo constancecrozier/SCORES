@@ -380,7 +380,7 @@ class OffshoreWindModel(GenerationModel):
         year_min: (int) earliest year in sumlation
         year_max: (int) latest year in simulation
         months: (Array<int>) list of months to be included in the simulation
-        fixed_cost: (float) cost incurred per MW of installation in GBP
+        fixed_cost: (float) cost incurred per MW-year of installation in GBP
         variable_cost: (float) cost incurred per MWh of generation in GBP
         tilt: (float) blade tilt in degrees
         air_density: (float) density of air in kg/m3
