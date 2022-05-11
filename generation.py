@@ -14,7 +14,7 @@ from fns import lambda_i, c_p, get_filename
 class GenerationModel:
     # Base class for a generation model
     def __init__(self, sites, year_min, year_max, months, fixed_cost,
-                 variable_cost, name, data_path, save_path):
+                 variable_cost, name, data_path, save_path,limits=[0,1000000]):
         '''
         == description ==
         This function initialises the class, builds empty arrays to store the
@@ -28,6 +28,7 @@ class GenerationModel:
         months: (Array<int>) list of months to be included in the simulation
         fixed_cost: (float) cost incurred per MW-year of installation in GBP
         variable_cost: (float) cost incurred per MWh of generation in GBP
+        limits: (array<float>) used for .full_optimise to define the max and min installed generation in MWh ([min,max])
 
         == returns ==
         None
@@ -41,6 +42,7 @@ class GenerationModel:
         self.name = name
         self.data_path = data_path
         self.save_path = save_path
+        self.limits = limits
 
         self.date_map = {}
         n = 0
@@ -197,6 +199,166 @@ class GenerationModel:
 
         return p
         
+class TidalStreamTurbineModel(GenerationModel):
+    
+
+    def __init__(self, sites='all', year_min=2013, year_max=2019,
+                 months=list(range(1, 13)), fixed_cost=445400, variable_cost=0,
+                 water_density=1027.0, rotor_diameter=20,
+                 rated_water_speed=2.91, v_cut_in=0.88, Cp = 0.37,
+                 v_cut_out=10, n_turbine=None, turbine_size=1.47, data_path='',
+                 save_path='stored_model_runs/', save=True):
+        '''
+        == description ==
+        Initialises an OffshoreWindModel object. Searches for a saved result at
+        save_path, otherwise generates a power curve and calculates the
+        aggregated power output from turbines at the locations contained in
+        sites.
+
+        == parameters ==
+        sites: (Array<int>) List of site indexes to be used
+        year_min: (int) earliest year in sumlation
+        year_max: (int) latest year in simulation
+        months: (Array<int>) list of months to be included in the simulation
+        fixed_cost: (float) cost incurred per MW of installation in GBP
+        variable_cost: (float) cost incurred per MWh of generation in GBP
+        water_density: (float) density of water in kg/m3
+        rotor_diameter: (float) rotor diameter in m
+        rated_wind_speed: (float) rated wind speed in m/s
+        v_cut_in: (float) cut in wind speed in m/s
+        Cp: (float) power coefficient, assumed constant over flow speeds
+        v_cut_out: (float) cut out wind speed in m/s
+        n_turbine: (Array<int>) number of turbines installed at each site
+        turbine_size: (float) size of each turbine in MW
+        data_path: (str) path to file containing raw data
+        save_path: (str) path to file where output will be saved
+        save: (boo) determines whether to save the results of the run
+
+        == returns ==
+        None
+        '''
+        super().__init__(sites, year_min, year_max, months, fixed_cost,
+                         variable_cost, 'Tidal Stream',data_path,save_path)
+            
+       
+        self.water_density = water_density
+        self.rotor_diameter = rotor_diameter
+        self.rated_water_speed = rated_water_speed
+        self.v_cut_in = v_cut_in
+        self.v_cut_out = v_cut_out
+        self.n_turbine = n_turbine
+        self.turbine_size = turbine_size
+        self.Cp = Cp
+        
+        file_name = get_filename(sites,'tidal',year_min,year_max,months)
+        if file_name == '':
+            save = False
+
+        if self.check_for_saved_run(self.save_path+file_name) is False:
+            self.run_model()
+            if save is True:
+                self.save_run(self.save_path+file_name) 
+
+    def run_model(self):
+        '''
+        == description ==
+        Generates power curve and runs model from historic data
+
+        == parameters ==
+        None
+
+        == returns ==
+        None
+        '''
+
+        if self.data_path == '':
+            raise Exception('model can not be run without a data path')
+        if self.sites == 'all':
+            sites = []
+            with open(self.data_path+'site_locs.csv','r') as csvfile:
+                reader = csv.reader(csvfile)
+                next(reader)
+                for row in reader:
+                    sites.append(int(row[0]))
+            self.sites = sites
+
+        elif self.sites[:2] == 'lf':
+            sites = []
+            lwst = str(sites[2:])
+            locs = []
+            #with open(self.save_path+'s_load_factors.csv','r') as csvfile:
+            with open(self.save_path+'tidal_load_factors.csv','r') as csvfile:
+                reader = csv.reader(csvfile)
+                next(reader)
+                for row in reader:
+                    if float(row[2])*100 > lwst:
+                        locs.append([row[0]+row[1]])
+            with open(self.data_path+'site_locs.csv','r') as csvfile:
+                reader = csv.reader(csvfile)
+                next(reader)
+                for row in reader:
+                    if row[1]+row[2] in locs:
+                        sites.apend(int(row[0]))
+            self.sites = sites
+        
+        # If no values given assume an equl distribution of turbines over sites
+        if self.n_turbine is None:
+            self.n_turbine = [1]*len(self.sites)
+
+        self.total_installed_capacity = sum(self.n_turbine)*self.turbine_size
+
+        area = np.pi*self.rotor_diameter*self.rotor_diameter/4
+
+        # create the power curve at intervals of 0.1
+        v = np.arange(0, self.v_cut_out, 0.1)  # wind speeds (m/s)
+        P = [0.0]*len(v)  # power output (MW)
+
+        # assume a fixed Cp - calculate this value using the turbine's rated wind speed and rated power
+        Cp = self.Cp
+        
+        for i in range(len(v)):
+            if v[i] < self.v_cut_in:
+                continue
+
+            P[i] = 0.5*Cp*self.water_density*area*np.power(v[i], 3)  # new power equation using fixed Cp
+            P[i] = P[i] / 1e6  # W to MW
+
+            if P[i] > self.turbine_size:
+                P[i] = self.turbine_size
+            
+        # Next get the tidal data
+        for si in range(len(self.sites)):
+            site = self.sites[si]
+            with open(self.data_path+str(site)+'.csv', 'rU') as csvfile:
+                reader = csv.reader(csvfile)
+                next(reader)
+                for row in reader:
+                    d = datetime.datetime(int(row[0]), int(row[1]),
+                                          int(row[2]))
+                    if d not in self.date_map:
+                        continue
+                    dn = self.date_map[d]  # day number (int)
+                    hr = int(row[3])-1  # hour (int) 0-23 
+
+                    # skip missing data
+                    if float(row[6]) >= 0:
+                        speed = float(row[6])
+                    else:
+                        continue
+
+                    # prevent overload
+                    if speed > v[-1]:
+                        speed = v[-1]
+                        
+                    # interpolate the closest values from the power curve
+                    p1 = int(speed / 0.1)
+                    p2 = p1 + 1
+                    if p2 == len(P):
+                        p2 = p1
+                    f = (speed % 0.1) / 0.1
+                    self.power_out[dn * 24 + hr] += ((f*P[p2] + (1 - f)*P[p1])
+                                                     *self.n_turbine[si])
+                    self.n_good_points[dn * 24 + hr] += 1
 
 class OffshoreWindModel(GenerationModel):
 
@@ -218,7 +380,7 @@ class OffshoreWindModel(GenerationModel):
         year_min: (int) earliest year in sumlation
         year_max: (int) latest year in simulation
         months: (Array<int>) list of months to be included in the simulation
-        fixed_cost: (float) cost incurred per MW of installation in GBP
+        fixed_cost: (float) cost incurred per MW-year of installation in GBP
         variable_cost: (float) cost incurred per MWh of generation in GBP
         tilt: (float) blade tilt in degrees
         air_density: (float) density of air in kg/m3
@@ -767,6 +929,63 @@ class OnshoreWindModel(GenerationModel):
                                                      *self.n_turbine[si])
                     self.n_good_points[dn* 24 + hr] += 1
 
+class TidalStreamTurbineModelFast(TidalStreamTurbineModel):
+#suited to the pentland Firth region
+    def __init__(self, sites='all', year_min=2013, year_max=2019,
+                 months=list(range(1, 13)),data_path='',
+                 save_path='stored_model_runs/',save=True):
+        
+        super().__init__(sites=sites, year_min=year_min, year_max=year_max,
+                         months=months, 
+                         water_density=1027.0, rotor_diameter=20,
+                         rated_water_speed=3.6,
+                         v_cut_in=1.08, Cp = 0.37, v_cut_out=30, n_turbine=None,
+                         turbine_size=2.78,data_path=data_path,
+                         save_path=save_path,save=save)
+    
+        
+class TidalStreamTurbineModelFastFirm(TidalStreamTurbineModel):
+#suited to the pentland Firth region
+    def __init__(self, sites='all', year_min=2013, year_max=2019,
+                 months=list(range(1, 13)),data_path='',
+                 save_path='stored_model_runs/',save=True):
+        
+        super().__init__(sites=sites, year_min=year_min, year_max=year_max,
+                         months=months, 
+                         water_density=1027.0, rotor_diameter=20,
+                         rated_water_speed=2.24,
+                         v_cut_in=0.67, Cp = 0.37, v_cut_out=30, n_turbine=None,
+                         turbine_size=0.67,data_path=data_path,
+                         save_path=save_path,save=save)
+        
+class TidalStreamTurbineModelSlow(TidalStreamTurbineModel):
+#suited to the Anglesey and the Solent regions.
+    def __init__(self, sites='all', year_min=2013, year_max=2019,
+                 months=list(range(1, 13)),data_path='',
+                 save_path='stored_model_runs/',save=True):
+        
+        super().__init__(sites=sites, year_min=year_min, year_max=year_max,
+                         months=months, 
+                         water_density=1027.0, rotor_diameter=20,
+                         rated_water_speed=2.3,
+                         v_cut_in=0.7, Cp = 0.37, v_cut_out=30, n_turbine=None,
+                         turbine_size=0.75,data_path=data_path,
+                         save_path=save_path,save=save)
+        
+class TidalStreamTurbineModelSlowFirm(TidalStreamTurbineModel):
+#suited to the Anglesey and the Solent regions.
+    def __init__(self, sites='all', year_min=2013, year_max=2019,
+                 months=list(range(1, 13)),data_path='',
+                 save_path='stored_model_runs/',save=True):
+        
+        super().__init__(sites=sites, year_min=year_min, year_max=year_max,
+                         months=months, 
+                         water_density=1027.0, rotor_diameter=20,
+                         rated_water_speed=1.45,
+                         v_cut_in=0.43, Cp = 0.37, v_cut_out=30, n_turbine=None,
+                         turbine_size=0.18,data_path=data_path,
+                         save_path=save_path,save=save)
+
 class OnshoreWindModel5800(OnshoreWindModel):
 
     def __init__(self, sites='all', year_min=2013, year_max=2019,
@@ -854,3 +1073,86 @@ class OnshoreWindModel1500(OnshoreWindModel):
                          hub_height=65,data_path=data_path, save_path=save_path,
                          save=save)
 
+class TidalStreamTurbine_VR_1_0(TidalStreamTurbineModel):
+
+    def __init__(self, sites='all', year_min=2013, year_max=2019,
+                 months=list(range(1, 13)),data_path='',
+                 save_path='stored_model_runs/',save=True):
+        
+        super().__init__(sites=sites, year_min=year_min, year_max=year_max,
+                         months=months, 
+                         water_density=1027.0, rotor_diameter=20,
+                         rated_water_speed=1.0,
+                         v_cut_in=0.3, Cp = 0.37, v_cut_out=30, n_turbine=None,
+                         turbine_size=0.060,data_path=data_path,
+                         save_path=save_path,save=save)
+        
+class TidalStreamTurbine_VR_1_5(TidalStreamTurbineModel):
+
+    def __init__(self, sites='all', year_min=2013, year_max=2019,
+                 months=list(range(1, 13)),data_path='',
+                 save_path='stored_model_runs/',save=True):
+        
+        super().__init__(sites=sites, year_min=year_min, year_max=year_max,
+                         months=months, 
+                         water_density=1027.0, rotor_diameter=20,
+                         rated_water_speed=1.5,
+                         v_cut_in=0.45, Cp = 0.37, v_cut_out=30, n_turbine=None,
+                         turbine_size=0.201,data_path=data_path,
+                         save_path=save_path,save=save)
+        
+class TidalStreamTurbine_VR_2_0(TidalStreamTurbineModel):
+
+    def __init__(self, sites='all', year_min=2013, year_max=2019,
+                 months=list(range(1, 13)),data_path='',
+                 save_path='stored_model_runs/',save=True):
+        
+        super().__init__(sites=sites, year_min=year_min, year_max=year_max,
+                         months=months, 
+                         water_density=1027.0, rotor_diameter=20,
+                         rated_water_speed=2.0,
+                         v_cut_in=0.60, Cp = 0.37, v_cut_out=30, n_turbine=None,
+                         turbine_size=0.478,data_path=data_path,
+                         save_path=save_path,save=save)
+        
+class TidalStreamTurbine_VR_2_5(TidalStreamTurbineModel):
+
+    def __init__(self, sites='all', year_min=2013, year_max=2019,
+                 months=list(range(1, 13)),data_path='',
+                 save_path='stored_model_runs/',save=True):
+        
+        super().__init__(sites=sites, year_min=year_min, year_max=year_max,
+                         months=months, 
+                         water_density=1027.0, rotor_diameter=20,
+                         rated_water_speed=2.5,
+                         v_cut_in=0.75, Cp = 0.37, v_cut_out=30, n_turbine=None,
+                         turbine_size=0.933,data_path=data_path,
+                         save_path=save_path,save=save)
+        
+class TidalStreamTurbine_VR_3_0(TidalStreamTurbineModel):
+
+    def __init__(self, sites='all', year_min=2013, year_max=2019,
+                 months=list(range(1, 13)),data_path='',
+                 save_path='stored_model_runs/',save=True):
+        
+        super().__init__(sites=sites, year_min=year_min, year_max=year_max,
+                         months=months, 
+                         water_density=1027.0, rotor_diameter=20,
+                         rated_water_speed=3.0,
+                         v_cut_in=0.9, Cp = 0.37, v_cut_out=30, n_turbine=None,
+                         turbine_size=1.612,data_path=data_path,
+                         save_path=save_path,save=save)
+        
+class TidalStreamTurbine_VR_3_5(TidalStreamTurbineModel):
+
+    def __init__(self, sites='all', year_min=2013, year_max=2019,
+                 months=list(range(1, 13)),data_path='',
+                 save_path='stored_model_runs/',save=True):
+        
+        super().__init__(sites=sites, year_min=year_min, year_max=year_max,
+                         months=months, 
+                         water_density=1027.0, rotor_diameter=20,
+                         rated_water_speed=3.5,
+                         v_cut_in=1.05, Cp = 0.37, v_cut_out=30, n_turbine=None,
+                         turbine_size=2.559,data_path=data_path,
+                         save_path=save_path,save=save)
