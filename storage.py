@@ -380,7 +380,7 @@ class BatteryStorageModel(StorageModel):
 
     def __init__(self, eff_in=95, eff_out=95, self_dis=2,
                  variable_cost=0,
-                 fixed_cost=16000, max_c_rate=100, max_d_rate=100,
+                 fixed_cost=23357, max_c_rate=25, max_d_rate=25,
                  capacity=1):
         
         super().__init__(eff_in, eff_out, self_dis, variable_cost, fixed_cost,
@@ -389,8 +389,8 @@ class BatteryStorageModel(StorageModel):
 
 class HydrogenStorageModel(StorageModel):
 
-    def __init__(self, eff_in=67, eff_out=56, self_dis=0, variable_cost=6.5,
-                 fixed_cost=120, max_c_rate=0.032, max_d_rate=0.15,
+    def __init__(self, eff_in=78.7, eff_out=50, self_dis=0, variable_cost=8.44,
+                 fixed_cost=193.9, max_c_rate=0.06, max_d_rate=0.12,
                  capacity=1):
         
         super().__init__(eff_in, eff_out, self_dis, variable_cost, fixed_cost,
