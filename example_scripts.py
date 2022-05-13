@@ -1,7 +1,5 @@
 # test scripts
-from generation import (OffshoreWindModel, SolarModel, OnshoreWindModel3600,
-                        OnshoreWindModel2000, OnshoreWindModel4200,
-                        OnshoreWindModel5300, OnshoreWindModel5800)
+from generation import (SolarModel, OnshoreWindModel3600, OffshoreWindModel10000)
 from storage import (BatteryStorageModel, HydrogenStorageModel,
                      ThermalStorageModel)
 from maps import SolarMap, OnshoreWindMap, OffshoreWindMap, LoadFactorEstimator
@@ -14,7 +12,7 @@ USE CASE 1: Runnning individual generation models
 # First offshore wind, note that all parameters are optional, but if the query
 # hasn't been run before, a data_path is required
 
-osw = OffshoreWindModel(year_min=2013, year_max=2019, sites='all',
+osw = OffshoreWindModel10000(year_min=2013, year_max=2019, sites='all',
                         data_path='data/offshore_wind/')
 
 p = osw.power_out # time-series of the output
