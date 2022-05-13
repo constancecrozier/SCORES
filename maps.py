@@ -13,10 +13,14 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.basemap import Basemap
 from matplotlib import cm
 from matplotlib.colors import ListedColormap, LinearSegmentedColormap
-from generation import (OffshoreWindModel,OnshoreWindModel,
-                        OnshoreWindModel5300, OnshoreWindModel3600,
-                        OnshoreWindModel2000, OnshoreWindModel1500,
-                        OnshoreWindModel5800, OnshoreWindModel4200, SolarModel)
+from generation import (OffshoreWindModel, OffshoreWindModel10000,
+                        OffshoreWindModel12000, OffshoreWindModel15000,
+                        OffshoreWindModel17000, OffshoreWindModel20000,
+                        OnshoreWindModel, OnshoreWindModel3600,
+                        OnshoreWindModel2000, OnshoreWindModel3000,
+                        OnshoreWindModel4000, OnshoreWindModel5000,
+                        OnshoreWindModel6000, OnshoreWindModel7000,
+                        SolarModel)
 
 class LoadFactorEstimator:
     
@@ -71,12 +75,18 @@ class LoadFactorEstimator:
             raise Exception('a data location is required')
         
         gen_model = {'osw':OffshoreWindModel,
-                     'w5.8':OnshoreWindModel5800,
-                     'w5.3':OnshoreWindModel5300,
+                     'osw20.0':OffshoreWindModel20000,
+                     'osw17.0':OffshoreWindModel17000,
+                     'osw15.0':OffshoreWindModel15000,
+                     'osw12.0':OffshoreWindModel12000,
+                     'osw10.0':OffshoreWindModel10000,
+                     'w7.0':OnshoreWindModel7000,
+                     'w6.0':OnshoreWindModel6000,
+                     'w5.0':OnshoreWindModel5000,
                      'w3.6':OnshoreWindModel3600,
-                     'w4.2':OnshoreWindModel4200,
+                     'w4.0':OnshoreWindModel4000,
+                     'w3.0':OnshoreWindModel3000,
                      'w2.0':OnshoreWindModel2000,
-                     'w1.5':OnshoreWindModel1500,
                      's':SolarModel}
         locs = {}
         with open(self.datapath+'site_locs.csv','r') as csvfile:
