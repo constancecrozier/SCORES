@@ -181,32 +181,6 @@ class MultipleAggregatedEVs:
         self.Shed = np.empty([]) #timeseries of surplus shedding
         self.driving_energy = 0 #total energy used for driving in MW
                 
-    # def optimise_charger_type(self,surplus,fossilLimit,MultStor):
-    
-    #     '''
-    #     == description ==
-    #     For a given surplus, returns the cost optimal storage mix to meet the specified reliability. Charge order not relevant here.
-    
-    #     == parameters ==
-    #     surplus: (Array<float>) the surplus generation to be smoothed in MW
-    #     fossilLimit: (float) max acceptable amount of fossil fuel generated energy (MWh)
-    #     MultStor: (MultipleStorageAssets)  if dont want to consider storage, simply input this: stor.MultipleStorageAssets([])
-    
-    #     == returns ==
-    #     '''
-        
-    #     for i in range(0,self.n_assets):            
-    #         # Check that the input timeseries are divisible by 24
-    #         if not self.assets[i].Nin.size % 24 == 0:
-    #             print('Nin/Nout data for fleet ' + self.assets[i].name + ' is not exactly divisible by 24hrs, could lead to unnatural periodicities.')
-            
-    #         #increase the length of the in/out plugin series to be longer than the simulation
-    #         repeat_num = surplus.size // self.assets[i].Nin.size
-    #         self.assets[i].Nin = np.tile(self.assets[i].Nin,repeat_num+1)
-    #         repeat_num = surplus.size // self.assets[i].Nout.size
-    #         self.assets[i].Nout = np.tile(self.assets[i].Nout,repeat_num+1)
-            
-    #     opt_con.optimise_configuration(surplus,fossilLimit,MultStor,self)
         
         
     def construct_connectivity_timeseries (self,start,end,includeleapdays=True):
@@ -275,26 +249,7 @@ class MultipleAggregatedEVs:
         
         
                 
-        # for i in range(0,self.n_assets):            
-        #     # Check that the input timeseries are divisible by 24
-        #     if not self.assets[i].Nin.size % 24 == 0:
-        #         print('Nin/Nout data for fleet ' + self.Mult_aggEV.assets[i].name + ' is not exactly divisible by 24hrs, could lead to unnatural periodicities.')
 
-        #     #increase the length of the in/out plugin series to be longer than the simulation
-        #     repeat_num = timehorizon // self.assets[i].Nin.size
-        #     self.assets[i].Nin = np.tile(self.assets[i].Nin,repeat_num+1)
-        #     repeat_num = timehorizon // self.assets[i].Nout.size
-        #     self.assets[i].Nout = np.tile(self.assets[i].Nout,repeat_num+1)
-            
-        # N = np.empty([self.n_assets,timehorizon]) #the normalised number of EVs connected at a given time (EV connections/disconnections are assumed to occur at teh start of the timestep)
-        # for k in range(self.n_assets):
-        #     for t in range(timehorizon):
-        #         if t == 0:
-        #             N[k,t] = self.assets[k].initial_number
-        #         else:
-        #             N[k,t] = N[k,t-1] + self.assets[k].Nin[t] - self.assets[k].Nout[t]
-                               
-        #     self.assets[k].N = N[k,:]
         
 
     

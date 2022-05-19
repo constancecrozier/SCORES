@@ -26,11 +26,12 @@ from os import listdir
 from storage import MultipleStorageAssets
 from fns import (_subplot, result_as_txt, get_GB_demand, offset,
                  read_analysis_from_file)
+import aggregatedEVs as aggEV
         
 class ElectricitySystem:
 
     def __init__(self, gen_list, stor_list, demand, t_res=1, reliability=99,
-                 start_up_time=0,strategy='ordered'):
+                 start_up_time=0,strategy='ordered',aggEV_list = aggEV.MultipleAggregatedEVs([])):
         '''
         == description ==
         Initiates base class
@@ -38,6 +39,7 @@ class ElectricitySystem:
         == parameters ==
         gen_list: (Array<GenerationModel>) a list containing generator objects
         stor_list: (Array<StorageModel>)
+        aggEV_list: (MultipleAggregatedEVs) class of multiple agg EV fleets from teh aggEVs class, default arg is an empty set
         demand: (Array<float)>) the demand in MW
         t_res: (float) the length of one demand time step in hours
         reliability: (float) The percentage of demand that will be met
@@ -54,9 +56,11 @@ class ElectricitySystem:
         
         for gen in gen_list:
             if len(gen.power_out) != len(demand):
+                print(len(gen.power_out),len(demand))
                 raise Exception('supply and demand have different lengths')
 
         self.gen_list = gen_list
+        self.aggEV_list = aggEV_list 
         self.demand = demand
         self.t_res = t_res
         self.len = len(demand)
@@ -65,6 +69,7 @@ class ElectricitySystem:
         self.reliability = reliability
         self.start_up_time = start_up_time
         self.strategy = strategy
+        self.stor_list = stor_list
 
         # initialise bounds that are used for optimisation
         self.min_gen_cap = [0.0]*len(gen_list)
@@ -141,7 +146,7 @@ class ElectricitySystem:
                         strategy='ordered'):
         '''
         == description ==
-        Calculates the percentage of demand that can be met with current system
+        Calculates the percentage of time that demand that can be met with current system
 
         == parameters ==
         None
@@ -164,7 +169,7 @@ class ElectricitySystem:
                                           strategy=strategy)
         return rel
 
-    def cost(self, x): 
+    def cost(self, x, preoptimised = False): 
         '''
         == description ==
         Calculates the total system cost for a given set of generation and
@@ -177,6 +182,7 @@ class ElectricitySystem:
             total storage capacity that each unit comprises. Note that there
             will be one fewer values than number of storage assets (as the
             remaining proportion of 1.0 is allocated to the last one.
+        preoptimised: (binvar) true if the optimise_conf has been run, false elsewise. User must input
 
         == returns ==
         (float) total system cost £bn /year
@@ -184,7 +190,7 @@ class ElectricitySystem:
         gen_cap = x[:len(self.gen_list)]
         stor_cap = list(x[len(self.gen_list):])
         stor_cap.append(1-sum(stor_cap))
-
+        
         total =  self.scale_generation(gen_cap)
         self.storage.rel_capacity = stor_cap
         
@@ -710,6 +716,8 @@ class ElectricitySystem:
 
 
     def plot_sensitivity_results(self,var_name):
+        
+        
         plt.figure(figsize=(7.7,4.5))
         plt.rcParams["font.family"] = 'serif'
         plt.rcParams['font.size'] = 10
@@ -750,8 +758,158 @@ class ElectricitySystem:
 
         plt.tight_layout()
         plt.show()
-                
+    
+    def simulate(self, ordered_charging = False):
+        '''
+        == description ==
+        Simulates the system operation for the timeperiod
 
+        == parameters ==
+        ordered_charging: (<bool>) if True then the system is simulated semi-causally, with EVs being charged optimally based on 24hr forecasts and then the storage is charged in a specified order from the remaining surplus
+                                    if False, then the system operation is optimised over the entire year using the given capacities of generator, storage and charger types, outputting the new reliability
+
+        == returns ==
+        None
+        '''
+        
+        #if(not ordered_charging):
+            
+            
+    
+    def new_analyse(self,filename='log/system_analysis.txt'):
+        '''
+        == description ==
+        Stores analysis of the described system as a text file. This was added by Mac to include EVs, done after optimise system
+
+        == parameters ==
+        
+
+        == returns ==
+        None
+        '''
+        
+        f = open(filename,'w')
+#        f.write('System cost: £'+str(c)+' bn/yr\n\n')
+        f.write('---------------------\n')
+        f.write('INSTALLED GENERATION\n')
+        f.write('---------------------\n\n')
+        for i in range(len(self.gen_list)):
+            f.write(self.gen_list[i].name+': '+str(int(self.gen_list[i].total_installed_capacity)*1e-3)+' GW\n\n')
+#        f.write('\n>>TOTAL: '+str(sum(x[:len(self.gen_list)]))+' GW\n\n')
+        f.write('------------------\n')
+        f.write('INSTALLED STORAGE\n')
+        f.write('------------------\n\n')
+        for i in range(len(self.stor_list)):
+            f.write(self.stor_list[i].name+': '+
+                    str(int(self.stor_list[i].capacity*1e-2)*1e-4)+' TWh\n')
+            
+        f.write('\n>>TOTAL: '+str(int(sum(self.stor_list[i].capacity for i in range(len(self.stor_list)) )*1e-2)*1e-4)+' TWh\n\n')
+
+        f.write('------------------\n')
+        f.write('INSTALLED EV CHARGERS\n')
+        f.write('------------------\n\n')
+        for i in range(self.aggEV_list.n_assets):
+            f.write(self.aggEV_list.assets[i].name+': #V2G: '+
+                    str(int(self.aggEV_list.assets[i].chargertype[0]*self.aggEV_list.assets[i].number))+', #Smart: '+str(int(self.aggEV_list.assets[i].chargertype[1]*self.aggEV_list.assets[i].number)) + '\n')
+            
+
+
+        f.write('\n--------------------\n')
+        f.write('STORAGE UTILISATION\n')
+        f.write('--------------------\n\n')
+ #      use = self.storage.analyse_usage()
+        
+        n_years = len(self.demand)/(365*24)
+  #      curt = use[2]/n_years
+        for i in range(self.n_storage):
+            f.write('>> '+self.stor_list[i].name+' <<\n\n')
+            f.write(str(int(self.stor_list[i].en_in*1e-3/n_years)*1e-3) + ' TWh/yr in (grid side)\n')
+            f.write(str(-int(self.stor_list[i].en_out*1e-3/n_years)*1e-3)
+                    +' TWh/yr out (grid side)\n\n')
+            
+        for i in range(self.aggEV_list.n_assets):
+            f.write('>> '+self.aggEV_list.assets[i].name+' <<\n\n')
+            f.write('V2G: '+
+                str(int(self.aggEV_list.assets[i].V2G_en_in*1e-3)*1e-3)+' TWh/yr in (grid side)\n')
+            f.write('V2G: '+
+                str(int(self.aggEV_list.assets[i].V2G_en_out*1e-3)*1e-3)+' TWh/yr out (grid side)\n\n')
+            f.write('Smart: '+
+                str(int(self.aggEV_list.assets[i].Smart_en_in*1e-3)*1e-3)+' TWh/yr in (grid side)\n\n')
+
+   #         cycles = (use[1][i]*100/(self.storage.units[i].eff_out*n_years
+   #                                  *self.storage.units[i].capacity))
+   #         f.write(str(cycles)+' cycles per year\n\n')
+
+        f.write('-------------------\n')
+        f.write('ENERGY UTILISATION\n')
+        f.write('-------------------\n\n')
+        f.write('Total Passive Demand: '
+                + str(int(sum(self.demand)*1e-3/(self.t_res*n_years))*1e-3)
+                + ' TWh/yr\n')
+        f.write('Total EV Driving Demand: '
+                + str(int(self.aggEV_list.driving_energy*1e-3/(self.t_res*n_years))*1e-3)
+                + ' TWh/yr\n')
+        f.write('Total Supply: '
+                + str( int((sum(sum(self.gen_list[i].power_out)for i in range(len(self.gen_list)))*1e-3)*1e-3)
+                      /(self.t_res*n_years) )
+                + ' TWh/yr\n') 
+        f.write('Curtailment: '+str(int(sum(self.aggEV_list.Shed*1e-3)/n_years)*1e-3)+' TWh/yr\n\n')
+
+        f.write('---------------\n')
+        f.write('COST BREAKDOWN\n')
+        f.write('---------------\n\n')
+        for i in range(len(self.gen_list)):
+            f.write(self.gen_list[i].name+': £'
+                    +str(int(1e-6*self.gen_list[i].total_installed_capacity*self.gen_list[i].fixed_cost)*1e-3)+' bn/yr\n')
+        for i in range(len(self.stor_list)):
+            f.write(self.stor_list[i].name+': £'
+                    +str(int(1e-6*self.stor_list[i].capacity*self.stor_list[i].fixed_cost)*1e-3)+' bn/yr\n')
+        f.close()
+
+        
+    def plot_timeseries(self,start=0,end=-1):
+        
+        '''   
+        == parameters ==
+        start: (int) start time of plot
+        end: (int) end time of plot
+        
+        '''
+
+        if (self.aggEV_list.Pfos.shape == ()):
+            print('Charging timeseries not avaialable, try running MultipleAggregatedEVs.optimise_charger_type().')
+        else:
+            if(end<=0):
+                timehorizon = self.aggEV_list.Pfos.size
+            else:
+                timehorizon = end
+            plt.rc('font', size=12)
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.plot(range(start,timehorizon), self.aggEV_list.Pfos[start:timehorizon], color='tab:red', label='FF Power')
+            ax.plot(range(start,timehorizon), self.aggEV_list.Shed[start:timehorizon], color='tab:blue', label='Renewable Shed')
+            ax.plot(range(start,timehorizon), self.aggEV_list.surplus[start:timehorizon], color='tab:orange', label='Surplus')
+    
+            # Same as above
+            ax.set_xlabel('Time (h)')
+            ax.set_ylabel('Power (MW)')
+            ax.set_title(' Power Timeseries')
+            ax.grid(True)
+            ax.legend(loc='upper left');   
+        
+        
+            plt.rc('font', size=12)
+            fig, ax = plt.subplots(figsize=(10, 6))
+            colours = ['b','g','r','c','m','y','b','g','r','c','m','y']
+            for g in range(len(self.gen_list)):                
+                ax.plot(range(start,timehorizon), self.gen_list[g].power_out[start:timehorizon], color=colours[g], label='Gen '+self.gen_list[g].name)
+            ax.plot(range(start,timehorizon), self.demand[start:timehorizon], color='tab:orange', label='Demand')
+    
+            # Same as above
+            ax.set_xlabel('Time (h)')
+            ax.set_ylabel('Power (MW)')
+            ax.set_title(' Generation')
+            ax.grid(True)
+            ax.legend(loc='upper left'); 
         
 
         
@@ -759,12 +917,12 @@ class ElectricitySystemGB(ElectricitySystem):
 
     def __init__(self, gen_list, stor_list, year_min=2013, year_max=2019,
                  months=list(range(1,13)), reliability=99,strategy='ordered',
-                 start_up_time=30*24*3,electrify_heat=False,evs=False):
+                 start_up_time=30*24*3,electrify_heat=False,evs=False,aggEV_list = aggEV.MultipleAggregatedEVs([])):
 
         demand = get_GB_demand(year_min, year_max, months,
                                electrify_heat=electrify_heat, evs=evs)
         super().__init__(gen_list, stor_list, demand, reliability=reliability,
-                         start_up_time=start_up_time)
+                         start_up_time=start_up_time,aggEV_list=aggEV_list)
 
         
 class DispatchableOutput(ElectricitySystem):

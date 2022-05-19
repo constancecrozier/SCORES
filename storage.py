@@ -10,7 +10,6 @@ icluded that are parameterised for Li-Ion, hydrogen, and thermal storage.
 import copy
 import numpy as np
 import matplotlib.pyplot as plt
-import optimise_configuration as opt_con
 #optimisation high level language, help found at https://www.ima.umn.edu/materials/2017-2018.2/W8.21-25.17/26326/3_PyomoFundamentals.pdf
 import pyomo.environ as pyo
 import aggregatedEVs as aggEV
@@ -380,7 +379,7 @@ class BatteryStorageModel(StorageModel):
 
     def __init__(self, eff_in=95, eff_out=95, self_dis=2,
                  variable_cost=0,
-                 fixed_cost=23357, max_c_rate=25, max_d_rate=25,
+                 fixed_cost=16000, max_c_rate=100, max_d_rate=100,
                  capacity=1):
         
         super().__init__(eff_in, eff_out, self_dis, variable_cost, fixed_cost,
@@ -389,8 +388,8 @@ class BatteryStorageModel(StorageModel):
 
 class HydrogenStorageModel(StorageModel):
 
-    def __init__(self, eff_in=78.7, eff_out=50, self_dis=0, variable_cost=8.44,
-                 fixed_cost=193.9, max_c_rate=0.06, max_d_rate=0.12,
+    def __init__(self, eff_in=67, eff_out=56, self_dis=0, variable_cost=6.5,
+                 fixed_cost=120, max_c_rate=0.032, max_d_rate=0.15,
                  capacity=1):
         
         super().__init__(eff_in, eff_out, self_dis, variable_cost, fixed_cost,
@@ -1023,20 +1022,6 @@ class MultipleStorageAssets:
         #print('Power Def',sum(pyo.value(self.non_causal_linprog.model.Pfos[:])[start_up_time:len(demand)-1]),'Total Demand', sum(demand[start_up_time:]), 'Total Driving Energy', sum(Total_Driving_Energy))
         return int(Non_Causal_Reliability*10000)/10000
         
-    def optimise_storage(self,surplus,fossilLimit):
-        
-        '''
-        == description ==
-        For a given surplus, returns the cost optimal storage mix to meet the specified reliability. Charge order not relevant here.
-
-        == parameters ==
-        surplus: (Array<float>) the surplus generation to be smoothed in MW
-        fossilLimit: (float) max acceptable amount of fossil fuel generated energy (MWh)
-
-        == returns ==
-        '''
-        
-        opt_con.optimise_configuration(surplus,fossilLimit,self,aggEV.MultipleAggregatedEVs([]))
         
         
        

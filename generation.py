@@ -363,11 +363,10 @@ class TidalStreamTurbineModel(GenerationModel):
 class OffshoreWindModel(GenerationModel):
 
     def __init__(self, sites='all', year_min=2013, year_max=2019,
-                 months=list(range(1, 13)), fixed_cost=225618, variable_cost=3,
-                 tilt=5, air_density=1.23, rotor_diameter=164,
-                 rated_rotor_rpm=7, rated_wind_speed=11, v_cut_in=3,
-                 v_cut_out=25, n_turbine=None, turbine_size=9.5, data_path='',
-                 hub_height=122, data_height=150, alpha=0.143,        # this line added by CQ     
+                 months=list(range(1, 13)), fixed_cost=240000, variable_cost=3,
+                 tilt=5, air_density=1.23, rotor_diameter=190,
+                 rated_rotor_rpm=10, rated_wind_speed=11.5, v_cut_in=4,
+                 v_cut_out=30, n_turbine=None, turbine_size=10, data_path='',
                  save_path='stored_model_runs/', save=True):
         '''
         == description ==
@@ -381,7 +380,7 @@ class OffshoreWindModel(GenerationModel):
         year_min: (int) earliest year in sumlation
         year_max: (int) latest year in simulation
         months: (Array<int>) list of months to be included in the simulation
-        fixed_cost: (float) cost incurred per MW of installation in GBP
+        fixed_cost: (float) cost incurred per MW-year of installation in GBP
         variable_cost: (float) cost incurred per MWh of generation in GBP
         tilt: (float) blade tilt in degrees
         air_density: (float) density of air in kg/m3
@@ -411,9 +410,6 @@ class OffshoreWindModel(GenerationModel):
         self.v_cut_out = v_cut_out
         self.n_turbine = n_turbine
         self.turbine_size = turbine_size
-        self.hub_height = hub_height            # added by CQ
-        self.data_height = data_height          # added by CQ
-        self.alpha = alpha                      # added by CQ
         
         file_name = get_filename(sites,'osw',year_min,year_max,months)
         if file_name == '':
@@ -479,16 +475,15 @@ class OffshoreWindModel(GenerationModel):
         # create the power curve at intervals of 0.1
         v = np.arange(0, self.v_cut_out, 0.1)  # wind speeds (m/s)
         P = [0.0]*len(v)  # power output (MW)
-        
-         # assume a fixed Cp - calculate this value using the turbine's rated wind speed and rated power
-        Cp = self.turbine_size*1e6/(0.5* self.air_density*area*np.power(self.rated_wind_speed, 3))
 
+        # assume a fixed Cp - calculate this value using the turbine's rated wind speed and rated power
+        Cp = self.turbine_size*1e6/(0.5* self.air_density*area*np.power(self.rated_wind_speed, 3))
+        
         for i in range(len(v)):
             if v[i] < self.v_cut_in:
                 continue
 
-            # P[i] = 0.5*c_p(tsr, b)* self.air_density*area*np.power(v[i], 3)
-            P[i] = 0.5*Cp*self.air_density*area*np.power(v[i], 3) 
+            P[i] = 0.5*Cp*self.air_density*area*np.power(v[i], 3)  # new power equation using fixed Cp
             P[i] = P[i] / 1e6  # W to MW
 
             if P[i] > self.turbine_size:
@@ -513,9 +508,6 @@ class OffshoreWindModel(GenerationModel):
                         speed = float(row[6])
                     else:
                         continue
-
-                    # adjust wind speed to hub height (CQ addition - prevoiusly was only in onshore model)
-                    speed = speed*np.power(self.hub_height/self.data_height, self.alpha) 
 
                     # prevent overload
                     if speed > v[-1]:
@@ -937,62 +929,93 @@ class OnshoreWindModel(GenerationModel):
                                                      *self.n_turbine[si])
                     self.n_good_points[dn* 24 + hr] += 1
 
-class TidalStreamTurbineModelFast(TidalStreamTurbineModel):
-#suited to the pentland Firth region
+class TidalStreamTurbineModel_P1(TidalStreamTurbineModel):
+#1MW turbine
     def __init__(self, sites='all', year_min=2013, year_max=2019,
                  months=list(range(1, 13)),data_path='',
                  save_path='stored_model_runs/',save=True):
         
         super().__init__(sites=sites, year_min=year_min, year_max=year_max,
                          months=months, 
-                         water_density=1027.0, rotor_diameter=20,
-                         rated_water_speed=3.6,
-                         v_cut_in=1.08, Cp = 0.37, v_cut_out=30, n_turbine=None,
-                         turbine_size=2.78,data_path=data_path,
+                         water_density=1027.0, rotor_diameter=24,
+                         rated_water_speed=2.19,
+                         v_cut_in=0.66, Cp = 0.41, v_cut_out=30, n_turbine=None,
+                         turbine_size=1.0,data_path=data_path,
                          save_path=save_path,save=save)
     
         
-class TidalStreamTurbineModelFastFirm(TidalStreamTurbineModel):
-#suited to the pentland Firth region
+class TidalStreamTurbineModel_P2(TidalStreamTurbineModel):
+#1.5MW turbine
     def __init__(self, sites='all', year_min=2013, year_max=2019,
                  months=list(range(1, 13)),data_path='',
                  save_path='stored_model_runs/',save=True):
         
         super().__init__(sites=sites, year_min=year_min, year_max=year_max,
                          months=months, 
-                         water_density=1027.0, rotor_diameter=20,
-                         rated_water_speed=2.24,
-                         v_cut_in=0.67, Cp = 0.37, v_cut_out=30, n_turbine=None,
-                         turbine_size=0.67,data_path=data_path,
+                         water_density=1027.0, rotor_diameter=24,
+                         rated_water_speed=2.50,
+                         v_cut_in=0.75, Cp = 0.41, v_cut_out=30, n_turbine=None,
+                         turbine_size=1.5,data_path=data_path,
                          save_path=save_path,save=save)
         
-class TidalStreamTurbineModelSlow(TidalStreamTurbineModel):
-#suited to the Anglesey and the Solent regions.
+class TidalStreamTurbineModel_P3(TidalStreamTurbineModel):
+#2MW turbine
     def __init__(self, sites='all', year_min=2013, year_max=2019,
                  months=list(range(1, 13)),data_path='',
                  save_path='stored_model_runs/',save=True):
         
         super().__init__(sites=sites, year_min=year_min, year_max=year_max,
                          months=months, 
-                         water_density=1027.0, rotor_diameter=20,
-                         rated_water_speed=2.3,
-                         v_cut_in=0.7, Cp = 0.37, v_cut_out=30, n_turbine=None,
-                         turbine_size=0.75,data_path=data_path,
+                         water_density=1027.0, rotor_diameter=24,
+                         rated_water_speed=2.75,
+                         v_cut_in=0.83, Cp = 0.41, v_cut_out=30, n_turbine=None,
+                         turbine_size=2.0,data_path=data_path,
                          save_path=save_path,save=save)
         
-class TidalStreamTurbineModelSlowFirm(TidalStreamTurbineModel):
-#suited to the Anglesey and the Solent regions.
+
+class OnshoreWindModel5800(OnshoreWindModel):
+
     def __init__(self, sites='all', year_min=2013, year_max=2019,
                  months=list(range(1, 13)),data_path='',
                  save_path='stored_model_runs/',save=True):
         
         super().__init__(sites=sites, year_min=year_min, year_max=year_max,
                          months=months, 
-                         water_density=1027.0, rotor_diameter=20,
-                         rated_water_speed=1.45,
-                         v_cut_in=0.43, Cp = 0.37, v_cut_out=30, n_turbine=None,
-                         turbine_size=0.18,data_path=data_path,
+                         tilt=5, air_density=1.23, rotor_diameter=170,
+                         rated_rotor_rpm=11.5, rated_wind_speed=14,
+                         v_cut_in=3, v_cut_out=30, n_turbine=None,
+                         turbine_size=5.8,hub_height=135,data_path=data_path,
                          save_path=save_path,save=save)
+
+class OnshoreWindModel5300(OnshoreWindModel):
+
+    def __init__(self, sites='all', year_min=2013, year_max=2019,
+                 months=list(range(1, 13)),data_path='',
+                 save_path='stored_model_runs/',save=True):
+        
+        super().__init__(sites=sites, year_min=year_min, year_max=year_max,
+                         months=months,
+                         tilt=5, air_density=1.23, rotor_diameter=158,
+                         rated_rotor_rpm=11.5, rated_wind_speed=14,
+                         v_cut_in=3, v_cut_out=37, n_turbine=None,
+                         turbine_size=5.3,hub_height=121,data_path=data_path,
+                         save_path=save_path,save=save)
+
+
+class OnshoreWindModel4200(OnshoreWindModel):
+
+    def __init__(self, sites='all', year_min=2013, year_max=2019,
+                 months=list(range(1, 13)),data_path='',
+                 save_path='stored_model_runs/',save=True):
+        
+        super().__init__(sites=sites, year_min=year_min, year_max=year_max,
+                         months=months, 
+                         tilt=5, air_density=1.23, rotor_diameter=150,
+                         rated_rotor_rpm=11.5, rated_wind_speed=14, v_cut_in=3,
+                         v_cut_out=22.5, n_turbine=None, turbine_size=4.2,
+                         hub_height=100,data_path=data_path, save_path=save_path,
+                         save=save)
+
 
 class OnshoreWindModel3600(OnshoreWindModel):
 
@@ -1002,10 +1025,10 @@ class OnshoreWindModel3600(OnshoreWindModel):
         
         super().__init__(sites=sites, year_min=year_min, year_max=year_max,
                          months=months,
-                         tilt=5, air_density=1.23, rotor_diameter=123,
-                         rated_rotor_rpm=13, rated_wind_speed=12, v_cut_in=4,
+                         tilt=5, air_density=1.23, rotor_diameter=120,
+                         rated_rotor_rpm=13, rated_wind_speed=12.5, v_cut_in=3,
                          v_cut_out=25, n_turbine=None, turbine_size=3.6,
-                         hub_height=80,data_path=data_path, save_path=save_path,
+                         hub_height=90,data_path=data_path, save_path=save_path,
                          save=save)
 
 class OnshoreWindModel2000(OnshoreWindModel):
@@ -1022,8 +1045,8 @@ class OnshoreWindModel2000(OnshoreWindModel):
                          hub_height=80,data_path=data_path, save_path=save_path,
                          save=save)
 
-        
-class OnshoreWindModel3000(OnshoreWindModel):
+
+class OnshoreWindModel1500(OnshoreWindModel):
 
     def __init__(self, sites='all', year_min=2013, year_max=2019,
                  months=list(range(1, 13)),data_path='',
@@ -1031,138 +1054,10 @@ class OnshoreWindModel3000(OnshoreWindModel):
         
         super().__init__(sites=sites, year_min=year_min, year_max=year_max,
                          months=months,
-                         tilt=5, air_density=1.23, rotor_diameter=113,
-                         rated_rotor_rpm=15.5, rated_wind_speed=12.5, v_cut_in=4,
-                         v_cut_out=25, n_turbine=None, turbine_size=3.0,
-                         hub_height=80,data_path=data_path, save_path=save_path,
-                         save=save)
-
-class OnshoreWindModel4000(OnshoreWindModel):
-
-    def __init__(self, sites='all', year_min=2013, year_max=2019,
-                 months=list(range(1, 13)),data_path='',
-                 save_path='stored_model_runs/',save=True):
-        
-        super().__init__(sites=sites, year_min=year_min, year_max=year_max,
-                         months=months,
-                         tilt=5, air_density=1.23, rotor_diameter=130,
-                         rated_rotor_rpm=13, rated_wind_speed=12, v_cut_in=4,
-                         v_cut_out=25, n_turbine=None, turbine_size=4,
-                         hub_height=90,data_path=data_path, save_path=save_path,
-                         save=save)
-        
-class OnshoreWindModel5000(OnshoreWindModel):
-
-    def __init__(self, sites='all', year_min=2013, year_max=2019,
-                 months=list(range(1, 13)),data_path='',
-                 save_path='stored_model_runs/',save=True):
-        
-        super().__init__(sites=sites, year_min=year_min, year_max=year_max,
-                         months=months,
-                         tilt=5, air_density=1.23, rotor_diameter=145,
-                         rated_rotor_rpm=11.5, rated_wind_speed=10.5, v_cut_in=4,
-                         v_cut_out=25, n_turbine=None, turbine_size=5,
-                         hub_height=100,data_path=data_path, save_path=save_path,
-                         save=save)
-
-    
-class OnshoreWindModel6000(OnshoreWindModel):
-
-    def __init__(self, sites='all', year_min=2013, year_max=2019,
-                 months=list(range(1, 13)),data_path='',
-                 save_path='stored_model_runs/',save=True):
-        
-        super().__init__(sites=sites, year_min=year_min, year_max=year_max,
-                         months=months,
-                         tilt=5, air_density=1.23, rotor_diameter=164,
-                         rated_rotor_rpm=11, rated_wind_speed=10, v_cut_in=4,
-                         v_cut_out=25, n_turbine=None, turbine_size=6.0,
-                         hub_height=100,data_path=data_path, save_path=save_path,
-                         save=save)
-
-class OnshoreWindModel7000(OnshoreWindModel):
-
-    def __init__(self, sites='all', year_min=2013, year_max=2019,
-                 months=list(range(1, 13)),data_path='',
-                 save_path='stored_model_runs/',save=True):
-        
-        super().__init__(sites=sites, year_min=year_min, year_max=year_max,
-                         months=months,
-                         tilt=5, air_density=1.23, rotor_diameter=171.2,
-                         rated_rotor_rpm=10.5, rated_wind_speed=11.5, v_cut_in=3,
-                         v_cut_out=25, n_turbine=None, turbine_size=7.0,
-                         hub_height=110,data_path=data_path, save_path=save_path,
-                         save=save)
-        
-
-class OffshoreWindModel10000(OffshoreWindModel):
-
-    def __init__(self, sites='all', year_min=2013, year_max=2019,
-                 months=list(range(1, 13)),data_path='',
-                 save_path='stored_model_runs/',save=True):
-        
-        super().__init__(sites=sites, year_min=year_min, year_max=year_max,
-                         months=months,
-                         tilt=5, air_density=1.23, rotor_diameter=190,
-                         rated_rotor_rpm=11, rated_wind_speed=11.5, v_cut_in=4,
-                         v_cut_out=30, n_turbine=None, turbine_size=10,
-                         hub_height=135,data_path=data_path, save_path=save_path,
-                         save=save)
-
-class OffshoreWindModel12000(OffshoreWindModel):
-
-    def __init__(self, sites='all', year_min=2013, year_max=2019,
-                 months=list(range(1, 13)),data_path='',
-                 save_path='stored_model_runs/',save=True):
-        
-        super().__init__(sites=sites, year_min=year_min, year_max=year_max,
-                         months=months,
-                         tilt=5, air_density=1.23, rotor_diameter=220,
-                         rated_rotor_rpm=11, rated_wind_speed=11, v_cut_in=4,
-                         v_cut_out=30, n_turbine=None, turbine_size=12,
-                         hub_height=150,data_path=data_path, save_path=save_path,
-                         save=save)
-
-class OffshoreWindModel15000(OffshoreWindModel):
-
-    def __init__(self, sites='all', year_min=2013, year_max=2019,
-                 months=list(range(1, 13)),data_path='',
-                 save_path='stored_model_runs/',save=True):
-        
-        super().__init__(sites=sites, year_min=year_min, year_max=year_max,
-                         months=months,
-                         tilt=5, air_density=1.23, rotor_diameter=246,
-                         rated_rotor_rpm=11, rated_wind_speed=10.25, v_cut_in=4,
-                         v_cut_out=30, n_turbine=None, turbine_size=15,
-                         hub_height=150,data_path=data_path, save_path=save_path,
-                         save=save)
-
-class OffshoreWindModel17000(OffshoreWindModel):
-
-    def __init__(self, sites='all', year_min=2013, year_max=2019,
-                 months=list(range(1, 13)),data_path='',
-                 save_path='stored_model_runs/',save=True):
-        
-        super().__init__(sites=sites, year_min=year_min, year_max=year_max,
-                         months=months,
-                         tilt=5, air_density=1.23, rotor_diameter=262,
-                         rated_rotor_rpm=11, rated_wind_speed=9.75, v_cut_in=4,
-                         v_cut_out=30, n_turbine=None, turbine_size=17,
-                         hub_height=180,data_path=data_path, save_path=save_path,
-                         save=save)
-
-class OffshoreWindModel20000(OffshoreWindModel):
-
-    def __init__(self, sites='all', year_min=2013, year_max=2019,
-                 months=list(range(1, 13)),data_path='',
-                 save_path='stored_model_runs/',save=True):
-        
-        super().__init__(sites=sites, year_min=year_min, year_max=year_max,
-                         months=months,
-                         tilt=5, air_density=1.23, rotor_diameter=284,
-                         rated_rotor_rpm=11, rated_wind_speed=9.55, v_cut_in=3,
-                         v_cut_out=30, n_turbine=None, turbine_size=20,
-                         hub_height=180,data_path=data_path, save_path=save_path,
+                         tilt=5, air_density=1.23, rotor_diameter=90,
+                         rated_rotor_rpm=19, rated_wind_speed=11, v_cut_in=3,
+                         v_cut_out=20, n_turbine=None, turbine_size=1.5,
+                         hub_height=65,data_path=data_path, save_path=save_path,
                          save=save)
 
 class TidalStreamTurbine_VR_1_0(TidalStreamTurbineModel):
