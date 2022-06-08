@@ -88,51 +88,49 @@ def read_analysis_from_file(filename):
     return res
 
 
-def get_GB_demand(year_min,year_max,months,electrify_heat=False,evs=False,
-                  units='MW'):
+def get_GB_demand(year_min,year_max,months,elec_demand=267.5134,heat_demand=0, # demands in each sector can optionally be defined in TWh/yr. Demand profile will then be scaled accordingly
+                  ev_demand=0, units='MW'):
     '''
     Gets the hourly GB electricity demand from the specified time range
     '''
     sf = {'MW':1,'GW':1e-3}
     d = datetime.datetime(year_min,1,1)
-    if(year_max==year_min):
-        df = datetime.datetime(year_max+1,1,1)
-    else:
-        df = datetime.datetime(year_max+1,1,1)
+    df = datetime.datetime(year_max+1,1,1)
     ms = {'JAN':1,'FEB':2,'MAR':3,'APR':4,'MAY':5,'JUN':6,'JUL':7,'AUG':8,
           'SEP':9,'OCT':10,'NOV':11,'DEC':12,'Jan':1,'Feb':2,'Mar':3,'Apr':4,
           'May':5,'Jun':6,'Jul':7,'Aug':8,'Sep':9,'Oct':10,'Nov':11,'Dec':12}
     demand = []
+    
+    elec_scaler = elec_demand / 267.5134     #these values are the *2019* annual TWh demands in the data file
+    ev_scaler = ev_demand / 52.5628     
+    heat_scaler = heat_demand / 826.638
 
-    if evs is True:
+    if ev_demand > 0:
+        
         wkday = []
         sat = []
         sun = []
         with open('data/ev_demand.csv','r') as csvfile:
             reader = csv.reader(csvfile)
             for row in reader:
-                wkday.append(float(row[0]))
-                sat.append(float(row[1]))
-                sun.append(float(row[2]))
+                wkday.append(float(row[0])*ev_scaler)
+                sat.append(float(row[1])*ev_scaler)
+                sun.append(float(row[2])*ev_scaler)
     with open('data/demand.csv','r') as csvfile:
         reader = csv.reader(csvfile)
         next(reader)
         for row in reader:
-            #print(row[0][7:],ms[row[0][3:6]],row[0][:2],row[1])
-            dt = datetime.datetime(2000+int(row[0][7:]),int(ms[row[0][3:6]]),
-                                   int(row[0][:2]),int(row[1]))
-            
-           
+            dt = datetime.datetime(int(row[0][7:]),ms[row[0][3:6]],
+                                   int(row[0][:2]))
             if dt < d:
                 continue
-            if dt >= df:
+            if d > df:
                 continue
             if ms[row[0][3:6]] not in months:
                 continue
-            p = float(row[2])*sf[units]
-        
-            
-            if evs is True:
+            p = float(row[2])*sf[units]*elec_scaler
+
+            if ev_demand > 0:
                 if dt.isoweekday() < 6:
                     p += wkday[dt.hour]
                 elif dt.isoweekday == 6:
@@ -142,7 +140,7 @@ def get_GB_demand(year_min,year_max,months,electrify_heat=False,evs=False,
                     
             demand.append(p)
 
-    if electrify_heat is True:
+    if heat_demand > 0:
 
         gas_profile = [3.5,3.4,3.4,3.4,3.4,3.3,3.8,4.3,4.5,4.5,4.5,4.3,4.3,4.2,
                        4.1,4.1,4.3,4.6,4.8,4.9,4.9,4.9,4.5,4.0]
@@ -150,8 +148,8 @@ def get_GB_demand(year_min,year_max,months,electrify_heat=False,evs=False,
         for t in range(24):
             gas_profile[t] = gas_profile[t]/s
 
-        cop = [3.25,3.263073005,3.373259762,3.613242784,3.896179966,4.161375212,
-               4.35,4.292105263,4.06893039,3.787860781,3.451697793,3.396604414]
+      #  cop = [3.25,3.263073005,3.373259762,3.613242784,3.896179966,4.161375212,
+      #         4.35,4.292105263,4.06893039,3.787860781,3.451697793,3.396604414]
         extra = {}
 
         with open('data/daily_gas.csv','r') as csvfile:
@@ -165,7 +163,8 @@ def get_GB_demand(year_min,year_max,months,electrify_heat=False,evs=False,
                 if mn+1 not in months:
                     continue
                 for t in range(24):
-                    extra[year].append(gas_profile[t]*float(row[1])*1e-3/cop[mn])
+               #     extra[year].append(gas_profile[t]*float(row[1])*1e-3/cop[mn])  # old method
+                    extra[year].append(gas_profile[t]*float(row[1])*1e-3*heat_scaler) # new method: cop now excluded because input heat_demand is already in elec (not heat)
         p_h = []
         for y in range(year_min,year_max+1):
             if y not in extra:
@@ -176,11 +175,6 @@ def get_GB_demand(year_min,year_max,months,electrify_heat=False,evs=False,
         for t in range(len(demand)):
             demand[t] += p_h[t]
         
-
-
-            
-                
-
     return demand
 
 def _subplot(x,n):
